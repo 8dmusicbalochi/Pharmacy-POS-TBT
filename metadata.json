@@ -1,0 +1,7 @@
+{
+  "name": "Pharmacy POS",
+  "description": "A comprehensive pharmacy management system with Point of Sale (POS), inventory tracking, financial dashboard, and role-based access for super admin, stock managers, and cashiers. Data is persisted in the browser's local storage.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
