@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useMemo, ReactNode, useRef } from 'react';
-import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem } from './types';
+import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem, Task } from './types';
 import mockApi from './services/mockApi';
 
 // Declare the html5-qrcode library which is loaded from a script tag
@@ -163,6 +163,7 @@ type StoreContextType = {
     inventory: InventoryItem[];
     sales: Sale[];
     auditLogs: AuditLog[];
+    tasks: Task[];
     settings: AppSettings;
     categories: Category[];
     suppliers: Supplier[];
@@ -174,6 +175,8 @@ type StoreContextType = {
     saveInventoryItem: (item: InventoryItem) => Promise<void>;
     addSale: (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => Promise<Sale>;
     addAuditLog: (log: Omit<AuditLog, 'id'>) => Promise<void>;
+    saveTask: (task: Task) => Promise<void>;
+    deleteTask: (taskId: string) => Promise<void>;
     saveSettings: (settings: AppSettings) => Promise<void>;
     saveCategory: (category: Category) => Promise<void>;
     deleteCategory: (categoryId: string) => Promise<void>;
@@ -190,6 +193,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [sales, setSales] = useState<Sale[]>([]);
     const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [settings, setSettings] = useState<AppSettings>({ appName: 'Pharmasist', currencySymbol: '$' });
     const [categories, setCategories] = useState<Category[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -200,6 +204,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         setInventory(mockApi.getInventory());
         setSales(mockApi.getSales());
         setAuditLogs(mockApi.getAuditLogs());
+        setTasks(mockApi.getTasks());
         setSettings(mockApi.getSettings());
         setCategories(mockApi.getCategories());
         setSuppliers(mockApi.getSuppliers());
@@ -231,6 +236,8 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const saveInventoryItem = async (item: InventoryItem) => { mockApi.saveInventoryItem(item); refreshData(); }
     const addSale = async (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => { const newSale = mockApi.addSale(sale); refreshData(); return newSale; }
     const addAuditLog = async (log: Omit<AuditLog, 'id'>) => { mockApi.addAuditLog(log); refreshData(); };
+    const saveTask = async (task: Task) => { mockApi.saveTask(task); refreshData(); };
+    const deleteTask = async (taskId: string) => { mockApi.deleteTask(taskId); refreshData(); };
     const saveSettings = async (newSettings: AppSettings) => { mockApi.saveSettings(newSettings); refreshData(); };
     const saveCategory = async (category: Category) => { mockApi.saveCategory(category); refreshData(); };
     const deleteCategory = async (categoryId: string) => { mockApi.deleteCategory(categoryId); refreshData(); };
@@ -240,7 +247,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
 
     return (
-        <StoreContext.Provider value={{ users, products, productsWithStock, inventory, sales, auditLogs, settings, categories, suppliers, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, saveInventoryItem, addSale, addAuditLog, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, bulkAddProducts }}>
+        <StoreContext.Provider value={{ users, products, productsWithStock, inventory, sales, auditLogs, tasks, settings, categories, suppliers, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, saveInventoryItem, addSale, addAuditLog, saveTask, deleteTask, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, bulkAddProducts }}>
             {children}
         </StoreContext.Provider>
     );
@@ -523,7 +530,7 @@ const LoginPage: React.FC = () => {
 };
 
 const DashboardPage: React.FC = () => {
-    const { productsWithStock, sales, settings, inventory } = useStore();
+    const { productsWithStock, sales, settings, inventory, tasks, saveTask } = useStore();
     const [salesOverviewDays, setSalesOverviewDays] = useState(30);
 
     const totalRevenue = useMemo(() => sales.reduce((sum, sale) => sum + sale.total, 0), [sales]);
@@ -614,6 +621,17 @@ const DashboardPage: React.FC = () => {
             maxSale: maxSale > 0 ? maxSale : 1 // Avoid division by zero for height calculation
         };
     }, [sales, salesOverviewDays]);
+    
+    const upcomingTasks = useMemo(() => {
+        return tasks
+            .filter(t => !t.isCompleted)
+            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+            .slice(0, 5); // Show top 5
+    }, [tasks]);
+
+    const handleToggleTask = async (task: Task) => {
+        await saveTask({ ...task, isCompleted: !task.isCompleted });
+    };
 
 
     return (
@@ -656,38 +674,82 @@ const DashboardPage: React.FC = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold mb-4 dark:text-light">Low Stock Items</h2>
-                    {lowStockProducts.length > 0 ? (
-                        <ul className="space-y-2 max-h-60 overflow-y-auto">
-                        {lowStockProducts.map(p => (
-                            <li key={p.id} className="flex justify-between items-center text-sm p-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 text-dark dark:text-light">
-                                <span>{p.name} ({p.sku})</span>
-                                <span className="font-bold text-red-600 dark:text-red-400">{p.totalStock} left</span>
-                            </li>
-                        ))}
-                    </ul>
-                    ) : (
-                        <p className="text-gray-500 dark:text-gray-400">No items are low on stock.</p>
-                    )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                 <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                        <h2 className="text-xl font-semibold mb-4 dark:text-light">Low Stock Items</h2>
+                        {lowStockProducts.length > 0 ? (
+                            <ul className="space-y-2 max-h-60 overflow-y-auto">
+                            {lowStockProducts.map(p => (
+                                <li key={p.id} className="flex justify-between items-center text-sm p-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 text-dark dark:text-light">
+                                    <span>{p.name} ({p.sku})</span>
+                                    <span className="font-bold text-red-600 dark:text-red-400">{p.totalStock} left</span>
+                                </li>
+                            ))}
+                        </ul>
+                        ) : (
+                            <p className="text-gray-500 dark:text-gray-400">No items are low on stock.</p>
+                        )}
+                    </div>
+                     <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                        <h2 className="text-xl font-semibold mb-4 dark:text-light">Expiring Soon & Expired Items ({expiringProducts.length})</h2>
+                         {expiringProducts.length > 0 ? (
+                            <ul className="space-y-2 max-h-60 overflow-y-auto">
+                            {expiringProducts.map(item => {
+                                const status = item.expiryStatus;
+                                return (
+                                    <li key={item.id} className={`flex justify-between items-center text-sm p-2 rounded-md border ${status.days < 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-500/30' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-500/30'} text-dark dark:text-light`}>
+                                        <span>{item.productName} ({item.quantity} units)</span>
+                                        <span className={`font-bold ${status.className}`}>{status.text}</span>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                        ) : (
+                            <p className="text-gray-500 dark:text-gray-400">No items are expiring soon.</p>
+                        )}
+                    </div>
                 </div>
                  <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold mb-4 dark:text-light">Expiring Soon & Expired Items ({expiringProducts.length})</h2>
-                     {expiringProducts.length > 0 ? (
-                        <ul className="space-y-2 max-h-60 overflow-y-auto">
-                        {expiringProducts.map(item => {
-                            const status = item.expiryStatus;
-                            return (
-                                <li key={item.id} className={`flex justify-between items-center text-sm p-2 rounded-md border ${status.days < 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-500/30' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-500/30'} text-dark dark:text-light`}>
-                                    <span>{item.productName} ({item.quantity} units)</span>
-                                    <span className={`font-bold ${status.className}`}>{status.text}</span>
-                                </li>
-                            )
-                        })}
-                    </ul>
+                    <h2 className="text-xl font-semibold mb-4 dark:text-light">Upcoming & Overdue Tasks</h2>
+                    {upcomingTasks.length > 0 ? (
+                        <ul className="space-y-3 max-h-[15rem] overflow-y-auto">
+                            {upcomingTasks.map(task => {
+                                const dueDate = new Date(task.dueDate);
+                                const today = new Date();
+                                today.setHours(0,0,0,0);
+                                const diffTime = dueDate.getTime() - today.getTime();
+                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                let dateText, dateClass;
+                                if (diffDays < 0) {
+                                    dateText = `Overdue by ${Math.abs(diffDays)} day(s)`;
+                                    dateClass = 'text-red-500';
+                                } else if (diffDays === 0) {
+                                    dateText = `Due today`;
+                                    dateClass = 'text-amber-500';
+                                } else {
+                                    dateText = `Due in ${diffDays} day(s)`;
+                                    dateClass = 'text-gray-500 dark:text-gray-400';
+                                }
+
+                                return (
+                                    <li key={task.id} className="flex items-start gap-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={task.isCompleted}
+                                            onChange={() => handleToggleTask(task)}
+                                            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                        <div className="flex-grow">
+                                            <p className="font-medium text-dark dark:text-light">{task.title}</p>
+                                            <p className={`text-sm ${dateClass}`}>{dateText}</p>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
                     ) : (
-                        <p className="text-gray-500 dark:text-gray-400">No items are expiring soon.</p>
+                        <p className="text-gray-500 dark:text-gray-400">No pending tasks.</p>
                     )}
                 </div>
             </div>
@@ -1482,6 +1544,180 @@ const InventoryManagementPage: React.FC = () => {
     );
 };
 
+// --- Task Management --- //
+const TaskModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    task: Task | null;
+}> = ({ isOpen, onClose, task }) => {
+    const { users, saveTask } = useStore();
+    const [formData, setFormData] = useState<Partial<Task>>({});
+
+    useEffect(() => {
+        if (isOpen) {
+            if (task) {
+                setFormData(task);
+            } else {
+                 setFormData({ 
+                    title: '',
+                    description: '',
+                    dueDate: new Date().toISOString().split('T')[0],
+                    isCompleted: false,
+                    assignedToId: '',
+                });
+            }
+        }
+    }, [isOpen, task]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value, type } = e.target;
+        const checked = (e.target as HTMLInputElement).checked;
+        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const assignedUser = users.find(u => u.id === formData.assignedToId);
+        const taskToSave: Task = {
+            id: formData.id || `task-${Date.now()}`,
+            title: formData.title || 'Untitled Task',
+            description: formData.description,
+            dueDate: formData.dueDate || new Date().toISOString().split('T')[0],
+            isCompleted: formData.isCompleted || false,
+            assignedToId: formData.assignedToId,
+            assignedToName: assignedUser?.name,
+            createdAt: formData.createdAt || new Date().toISOString(),
+        };
+        await saveTask(taskToSave);
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={task ? 'Edit Task' : 'Add Task'} maxWidth="max-w-xl">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium">Title *</label>
+                    <input type="text" name="title" value={formData.title || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">Description</label>
+                    <textarea name="description" value={formData.description || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} rows={3}></textarea>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Due Date *</label>
+                        <input type="date" name="dueDate" value={formData.dueDate || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium">Assign To</label>
+                        <select name="assignedToId" value={formData.assignedToId || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES}>
+                            <option value="">None</option>
+                           {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                 {task && (
+                    <div className="flex items-center">
+                        <input type="checkbox" id="isCompleted" name="isCompleted" checked={formData.isCompleted || false} onChange={handleChange} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                        <label htmlFor="isCompleted" className="ml-2 block text-sm font-medium">Mark as completed</label>
+                    </div>
+                 )}
+                <div className="pt-4 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
+                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">{task ? 'Save Changes' : 'Add Task'}</button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+const TasksManagementPage: React.FC = () => {
+    const { tasks, saveTask, deleteTask } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredTasks = useMemo(() => {
+        return tasks.filter(t => 
+            t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            t.assignedToName?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [tasks, searchTerm]);
+    
+    const { items: sortedTasks, requestSort, sortConfig } = useSort(filteredTasks, { key: 'dueDate', direction: 'asc' });
+
+    const openAddModal = () => { setSelectedTask(null); setIsModalOpen(true); };
+    const openEditModal = (task: Task) => { setSelectedTask(task); setIsModalOpen(true); };
+    const openDeleteConfirm = (task: Task) => { setSelectedTask(task); setIsConfirmOpen(true); };
+
+    const handleDelete = async () => {
+        if (selectedTask) {
+            await deleteTask(selectedTask.id);
+            setIsConfirmOpen(false);
+            setSelectedTask(null);
+        }
+    };
+    
+    const handleToggleComplete = async (task: Task) => {
+        await saveTask({ ...task, isCompleted: !task.isCompleted });
+    };
+
+    return (
+        <>
+            <ManagementPage
+                title="Tasks"
+                addBtnLabel="Add Task"
+                onAdd={openAddModal}
+                searchTerm={searchTerm}
+                onSearch={setSearchTerm}
+            >
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <th className="px-4 py-3 w-12">Status</th>
+                                <SortableHeader label="Title" sortKey="title" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Assigned To" sortKey="assignedToName" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Due Date" sortKey="dueDate" sortConfig={sortConfig} requestSort={requestSort} />
+                                <th className="px-4 py-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedTasks.map(t => {
+                                const isOverdue = !t.isCompleted && new Date(t.dueDate) < new Date();
+                                return (
+                                <tr key={t.id} className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 ${t.isCompleted ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-white dark:bg-dark-card'}`}>
+                                    <td className="px-4 py-3 text-center">
+                                        <input type="checkbox" checked={t.isCompleted} onChange={() => handleToggleComplete(t)} className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary" />
+                                    </td>
+                                    <td className={`px-4 py-3 font-medium ${t.isCompleted ? 'line-through' : 'text-gray-900 dark:text-white'}`}>{t.title}</td>
+                                    <td className="px-4 py-3">{t.assignedToName || 'N/A'}</td>
+                                    <td className={`px-4 py-3 font-medium ${isOverdue ? 'text-red-500' : ''}`}>{new Date(t.dueDate).toLocaleDateString()}</td>
+                                    <td className="px-4 py-3 flex gap-2">
+                                        <button onClick={() => openEditModal(t)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</button>
+                                        <button onClick={() => openDeleteConfirm(t)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
+                                    </td>
+                                </tr>
+                            )})}
+                        </tbody>
+                    </table>
+                </div>
+            </ManagementPage>
+            <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} task={selectedTask} />
+            <ConfirmationModal 
+                isOpen={isConfirmOpen} 
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={handleDelete}
+                title="Delete Task"
+            >
+                Are you sure you want to delete the task "{selectedTask?.title}"? This cannot be undone.
+            </ConfirmationModal>
+        </>
+    );
+};
+
+
 // --- Sales and Reports --- //
 const SalesHistoryPage: React.FC = () => { 
     const { sales, settings } = useStore();
@@ -1930,7 +2166,7 @@ const SettingsPage: React.FC = () => {
     
     const handleBackup = () => {
         const data: { [key: string]: any } = {};
-        const keys = ['pharmacy_users', 'pharmacy_products', 'pharmacy_inventory', 'pharmacy_sales', 'pharmacy_audit_logs', 'pharmacy_settings', 'pharmacy_categories', 'pharmacy_suppliers'];
+        const keys = ['pharmacy_users', 'pharmacy_products', 'pharmacy_inventory', 'pharmacy_sales', 'pharmacy_audit_logs', 'pharmacy_settings', 'pharmacy_categories', 'pharmacy_suppliers', 'pharmacy_tasks'];
         keys.forEach(key => {
             data[key] = JSON.parse(localStorage.getItem(key) || 'null');
         });
@@ -2072,6 +2308,7 @@ const AppLayout: React.FC<{ children: ReactNode }> = ({ children }) => {
         { name: 'POS', icon: icons.pos, href: '#/pos', roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
         { name: 'Products', icon: icons.products, href: '#/products', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Inventory', icon: icons.inventory, href: '#/inventory', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Tasks', icon: icons.clipboard, href: '#/tasks', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Sales', icon: icons.sales, href: '#/sales', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Reports', icon: icons.reports, href: '#/reports', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Suppliers', icon: icons.suppliers, href: '#/suppliers', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
@@ -2200,6 +2437,8 @@ const App: React.FC = () => {
                 return <ProductManagementPage />;
             case '#/inventory':
                 return <InventoryManagementPage />;
+            case '#/tasks':
+                return <TasksManagementPage />;
             case '#/sales':
                 return <SalesHistoryPage />;
             case '#/reports': 

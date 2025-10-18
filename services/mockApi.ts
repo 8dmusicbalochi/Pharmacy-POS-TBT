@@ -1,4 +1,4 @@
-import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem } from '../types';
+import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task } from '../types';
 
 const USERS_KEY = 'pharmacy_users';
 const PRODUCTS_KEY = 'pharmacy_products';
@@ -8,6 +8,7 @@ const AUDIT_LOGS_KEY = 'pharmacy_audit_logs';
 const SETTINGS_KEY = 'pharmacy_settings';
 const CATEGORIES_KEY = 'pharmacy_categories';
 const SUPPLIERS_KEY = 'pharmacy_suppliers';
+const TASKS_KEY = 'pharmacy_tasks';
 
 const getInitialUsers = (): User[] => [
   { id: 'u1', username: 'admin', password: 'password', role: UserRole.SUPER_ADMIN, name: 'Admin User' },
@@ -53,6 +54,44 @@ const getInitialInventory = (): InventoryItem[] => [
     { id: 'inv8', productId: 'p7', quantity: 200, expiryDate: getFutureDate(90), addedDate: new Date().toISOString() },
 ];
 
+const getInitialTasks = (): Task[] => [
+    {
+        id: 'task-1',
+        title: 'Monthly stock count for Medicine category',
+        description: 'Perform a full stock count for all products in the Medicine category. Report discrepancies.',
+        dueDate: getFutureDate(10),
+        isCompleted: false,
+        assignedToId: 'u2',
+        assignedToName: 'Stock Manager',
+        createdAt: new Date().toISOString(),
+    },
+    {
+        id: 'task-2',
+        title: 'Follow up with PharmaCore Inc. on backorder',
+        description: 'Check the status of the delayed shipment of Aspirin 100mg.',
+        dueDate: getFutureDate(2),
+        isCompleted: false,
+        assignedToId: 'u2',
+        assignedToName: 'Stock Manager',
+        createdAt: new Date().toISOString(),
+    },
+    {
+        id: 'task-3',
+        title: 'Clear out expired products from shelf',
+        description: '',
+        dueDate: getFutureDate(-5), // Overdue
+        isCompleted: false,
+        createdAt: new Date().toISOString(),
+    },
+    {
+        id: 'task-4',
+        title: 'Plan seasonal promotion for Personal Care items',
+        description: 'Create a bundle offer for the upcoming holiday season.',
+        dueDate: getFutureDate(25),
+        isCompleted: true,
+        createdAt: new Date().toISOString(),
+    }
+]
 
 const getInitialSettings = (): AppSettings => ({
   appName: 'Pharmasist',
@@ -83,6 +122,9 @@ const seedData = () => {
   }
   if (!localStorage.getItem(SETTINGS_KEY)) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(getInitialSettings()));
+  }
+  if (!localStorage.getItem(TASKS_KEY)) {
+    localStorage.setItem(TASKS_KEY, JSON.stringify(getInitialTasks()));
   }
 };
 
@@ -340,6 +382,27 @@ const api = {
             return p;
         });
         localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updatedProducts));
+    },
+
+    // TASKS
+    getTasks: (): Task[] => {
+        return JSON.parse(localStorage.getItem(TASKS_KEY) || '[]').sort((a: Task, b: Task) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    },
+    saveTask: (task: Task): Task => {
+        const tasks = api.getTasks();
+        const index = tasks.findIndex(t => t.id === task.id);
+        if (index !== -1) {
+            tasks[index] = task;
+        } else {
+            tasks.push(task);
+        }
+        localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+        return task;
+    },
+    deleteTask: (taskId: string): void => {
+        let tasks = api.getTasks();
+        tasks = tasks.filter(t => t.id !== taskId);
+        localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
     },
 };
 

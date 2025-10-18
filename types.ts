@@ -91,3 +91,14 @@ export interface AppSettings {
   appLogo?: string; // Base64 encoded image
   appIcon?: string; // Base64 encoded image
 }
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  dueDate: string;
+  isCompleted: boolean;
+  assignedToId?: string;
+  assignedToName?: string;
+  createdAt: string;
+}
