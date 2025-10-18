@@ -37,12 +37,20 @@ export interface Product {
     name: string;
     price: number;
     cost?: number;
-    stock: number;
     category: string;
     lowStockThreshold: number;
-    expiryDate?: string; // e.g., 'YYYY-MM-DD'
     supplierId?: string;
     supplierName?: string;
+    manufacturer?: string;
+    description?: string;
+}
+
+export interface InventoryItem {
+  id: string;
+  productId: string;
+  quantity: number;
+  expiryDate?: string;
+  addedDate: string;
 }
 
 export interface CartItem extends Product {
@@ -72,8 +80,8 @@ export interface AuditLog {
   userName: string;
   productId: string;
   productName: string;
-  oldStock: number;
-  newStock: number;
+  quantityChange: number;
+  newTotalStock: number;
   reason: string;
 }
 

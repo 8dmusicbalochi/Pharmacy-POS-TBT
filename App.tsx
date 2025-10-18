@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useMemo, ReactNode, useRef } from 'react';
-import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier } from './types';
+import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem } from './types';
 import mockApi from './services/mockApi';
 
 // Declare the html5-qrcode library which is loaded from a script tag
@@ -154,9 +154,13 @@ const useAuth = () => {
 
 
 // --- DATA STORE CONTEXT --- //
+type ProductWithStock = Product & { totalStock: number; batches: InventoryItem[] };
+
 type StoreContextType = {
     users: Omit<User, 'password'>[];
     products: Product[];
+    productsWithStock: ProductWithStock[];
+    inventory: InventoryItem[];
     sales: Sale[];
     auditLogs: AuditLog[];
     settings: AppSettings;
@@ -167,6 +171,7 @@ type StoreContextType = {
     deleteUser: (userId: string) => Promise<void>;
     saveProduct: (product: Product) => Promise<void>;
     deleteProduct: (productId: string) => Promise<void>;
+    saveInventoryItem: (item: InventoryItem) => Promise<void>;
     addSale: (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => Promise<Sale>;
     addAuditLog: (log: Omit<AuditLog, 'id'>) => Promise<void>;
     saveSettings: (settings: AppSettings) => Promise<void>;
@@ -182,6 +187,7 @@ const StoreContext = createContext<StoreContextType | null>(null);
 const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [users, setUsers] = useState<Omit<User, 'password'>[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [sales, setSales] = useState<Sale[]>([]);
     const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
     const [settings, setSettings] = useState<AppSettings>({ appName: 'Pharmasist', currencySymbol: '$' });
@@ -191,6 +197,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const refreshData = useCallback(() => {
         setUsers(mockApi.getUsers());
         setProducts(mockApi.getProducts());
+        setInventory(mockApi.getInventory());
         setSales(mockApi.getSales());
         setAuditLogs(mockApi.getAuditLogs());
         setSettings(mockApi.getSettings());
@@ -202,71 +209,38 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         refreshData();
     }, [refreshData]);
 
-    const saveUser = async (user: User) => {
-        mockApi.saveUser(user);
-        refreshData();
-    };
+    const productsWithStock = useMemo<ProductWithStock[]>(() => {
+        const inventoryByProduct = new Map<string, { totalStock: number; batches: InventoryItem[] }>();
+        inventory.forEach(item => {
+            const existing = inventoryByProduct.get(item.productId) || { totalStock: 0, batches: [] };
+            existing.totalStock += item.quantity;
+            existing.batches.push(item);
+            inventoryByProduct.set(item.productId, existing);
+        });
+        return products.map(p => ({
+            ...p,
+            totalStock: inventoryByProduct.get(p.id)?.totalStock || 0,
+            batches: inventoryByProduct.get(p.id)?.batches || [],
+        }));
+    }, [products, inventory]);
 
-    const deleteUser = async (userId: string) => {
-        mockApi.deleteUser(userId);
-        refreshData();
-    };
-
-    const saveProduct = async (product: Product) => {
-        mockApi.saveProduct(product);
-        refreshData();
-    };
-
-    const deleteProduct = async (productId: string) => {
-        mockApi.deleteProduct(productId);
-        refreshData();
-    }
-
-    const addSale = async (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => {
-        const newSale = mockApi.addSale(sale);
-        refreshData();
-        return newSale;
-    }
-
-    const addAuditLog = async (log: Omit<AuditLog, 'id'>) => {
-        mockApi.addAuditLog(log);
-        refreshData();
-    };
-
-    const saveSettings = async (newSettings: AppSettings) => {
-        mockApi.saveSettings(newSettings);
-        refreshData();
-    };
-
-    const saveCategory = async (category: Category) => {
-        mockApi.saveCategory(category);
-        refreshData();
-    };
-
-    const deleteCategory = async (categoryId: string) => {
-        mockApi.deleteCategory(categoryId);
-        refreshData();
-    };
-
-    const saveSupplier = async (supplier: Supplier) => {
-        mockApi.saveSupplier(supplier);
-        refreshData();
-    };
-
-    const deleteSupplier = async (supplierId: string) => {
-        mockApi.deleteSupplier(supplierId);
-        refreshData();
-    };
-
-    const bulkAddProducts = async (products: Omit<Product, 'id'>[]) => {
-        const result = mockApi.bulkAddProducts(products);
-        refreshData();
-        return result;
-    };
+    const saveUser = async (user: User) => { mockApi.saveUser(user); refreshData(); };
+    const deleteUser = async (userId: string) => { mockApi.deleteUser(userId); refreshData(); };
+    const saveProduct = async (product: Product) => { mockApi.saveProduct(product); refreshData(); };
+    const deleteProduct = async (productId: string) => { mockApi.deleteProduct(productId); refreshData(); }
+    const saveInventoryItem = async (item: InventoryItem) => { mockApi.saveInventoryItem(item); refreshData(); }
+    const addSale = async (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => { const newSale = mockApi.addSale(sale); refreshData(); return newSale; }
+    const addAuditLog = async (log: Omit<AuditLog, 'id'>) => { mockApi.addAuditLog(log); refreshData(); };
+    const saveSettings = async (newSettings: AppSettings) => { mockApi.saveSettings(newSettings); refreshData(); };
+    const saveCategory = async (category: Category) => { mockApi.saveCategory(category); refreshData(); };
+    const deleteCategory = async (categoryId: string) => { mockApi.deleteCategory(categoryId); refreshData(); };
+    const saveSupplier = async (supplier: Supplier) => { mockApi.saveSupplier(supplier); refreshData(); };
+    const deleteSupplier = async (supplierId: string) => { mockApi.deleteSupplier(supplierId); refreshData(); };
+    const bulkAddProducts = async (products: Omit<Product, 'id'>[]) => { const result = mockApi.bulkAddProducts(products); refreshData(); return result; };
 
 
     return (
-        <StoreContext.Provider value={{ users, products, sales, auditLogs, settings, categories, suppliers, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, addSale, addAuditLog, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, bulkAddProducts }}>
+        <StoreContext.Provider value={{ users, products, productsWithStock, inventory, sales, auditLogs, settings, categories, suppliers, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, saveInventoryItem, addSale, addAuditLog, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, bulkAddProducts }}>
             {children}
         </StoreContext.Provider>
     );
@@ -436,10 +410,7 @@ const BarcodeScannerModal: React.FC<{
                 onClose();
             };
 
-            const errorCallback = (error: any) => {
-                // This callback is called frequently, so it's best to keep it quiet
-                // console.warn(`Code scan error = ${error}`);
-            };
+            const errorCallback = (error: any) => {};
             
             html5QrCode.start({ facingMode: "environment" }, config, successCallback, errorCallback)
                 .catch((err: any) => {
@@ -552,21 +523,24 @@ const LoginPage: React.FC = () => {
 };
 
 const DashboardPage: React.FC = () => {
-    const { products, sales, settings } = useStore();
+    const { productsWithStock, sales, settings, inventory } = useStore();
     const [salesOverviewDays, setSalesOverviewDays] = useState(30);
 
     const totalRevenue = useMemo(() => sales.reduce((sum, sale) => sum + sale.total, 0), [sales]);
     const totalProfit = useMemo(() => sales.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0), [sales]);
-    const inventoryValueCost = useMemo(() => products.reduce((sum, p) => sum + (p.cost || 0) * p.stock, 0), [products]);
-    const lowStockProducts = useMemo(() => products.filter(p => p.stock <= p.lowStockThreshold), [products]);
+    const inventoryValueCost = useMemo(() => productsWithStock.reduce((sum, p) => sum + (p.cost || 0) * p.totalStock, 0), [productsWithStock]);
+    const lowStockProducts = useMemo(() => productsWithStock.filter(p => p.totalStock <= p.lowStockThreshold), [productsWithStock]);
 
     const expiringProducts = useMemo(() => {
-        return products
-            .filter(p => p.expiryDate)
-            .map(p => ({...p, expiryStatus: getExpiryStatus(p.expiryDate) }))
-            .filter(p => p.expiryStatus.days <= 30)
+        return inventory
+            .filter(item => item.expiryDate)
+            .map(item => {
+                const product = productsWithStock.find(p => p.id === item.productId);
+                return { ...item, productName: product?.name || 'N/A', expiryStatus: getExpiryStatus(item.expiryDate) };
+            })
+            .filter(item => item.expiryStatus.days <= 30)
             .sort((a, b) => a.expiryStatus.days - b.expiryStatus.days);
-    }, [products]);
+    }, [inventory, productsWithStock]);
     
     const todayStats = useMemo(() => {
         const todayStart = new Date();
@@ -600,10 +574,10 @@ const DashboardPage: React.FC = () => {
             }
         });
 
-        const product = products.find(p => p.id === bestSellerId);
+        const product = productsWithStock.find(p => p.id === bestSellerId);
         return product ? `${product.name} (${maxQty} sold)` : 'N/A';
 
-    }, [sales, products]);
+    }, [sales, productsWithStock]);
     
     const salesOverviewData = useMemo(() => {
         const data = [];
@@ -690,7 +664,7 @@ const DashboardPage: React.FC = () => {
                         {lowStockProducts.map(p => (
                             <li key={p.id} className="flex justify-between items-center text-sm p-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 text-dark dark:text-light">
                                 <span>{p.name} ({p.sku})</span>
-                                <span className="font-bold text-red-600 dark:text-red-400">{p.stock} left</span>
+                                <span className="font-bold text-red-600 dark:text-red-400">{p.totalStock} left</span>
                             </li>
                         ))}
                     </ul>
@@ -702,11 +676,11 @@ const DashboardPage: React.FC = () => {
                     <h2 className="text-xl font-semibold mb-4 dark:text-light">Expiring Soon & Expired Items ({expiringProducts.length})</h2>
                      {expiringProducts.length > 0 ? (
                         <ul className="space-y-2 max-h-60 overflow-y-auto">
-                        {expiringProducts.map(p => {
-                            const status = getExpiryStatus(p.expiryDate);
+                        {expiringProducts.map(item => {
+                            const status = item.expiryStatus;
                             return (
-                                <li key={p.id} className={`flex justify-between items-center text-sm p-2 rounded-md border ${status.days < 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-500/30' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-500/30'} text-dark dark:text-light`}>
-                                    <span>{p.name} ({p.sku})</span>
+                                <li key={item.id} className={`flex justify-between items-center text-sm p-2 rounded-md border ${status.days < 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-500/30' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-500/30'} text-dark dark:text-light`}>
+                                    <span>{item.productName} ({item.quantity} units)</span>
                                     <span className={`font-bold ${status.className}`}>{status.text}</span>
                                 </li>
                             )
@@ -798,7 +772,7 @@ const PaymentModal: React.FC<{
 
 
 const POSPage: React.FC = () => {
-    const { products, addSale, settings } = useStore();
+    const { productsWithStock, addSale, settings } = useStore();
     const { user } = useAuth();
     const [cart, setCart] = useState<CartItem[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -809,18 +783,18 @@ const POSPage: React.FC = () => {
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     const filteredProducts = useMemo(() => {
-        return products.filter(p => {
-            const isExpired = p.expiryDate ? new Date(p.expiryDate) < new Date() : false;
+        return productsWithStock.filter(p => {
+            const hasNonExpiredStock = p.batches.some(b => !b.expiryDate || new Date(b.expiryDate) >= new Date());
             return (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                    p.sku.toLowerCase().includes(searchTerm.toLowerCase())) && p.stock > 0 && !isExpired
+                    p.sku.toLowerCase().includes(searchTerm.toLowerCase())) && p.totalStock > 0 && hasNonExpiredStock;
         });
-    }, [products, searchTerm]);
+    }, [productsWithStock, searchTerm]);
 
-    const addToCart = (product: Product) => {
+    const addToCart = (product: ProductWithStock) => {
         setCart(prevCart => {
             const existingItem = prevCart.find(item => item.id === product.id);
             if (existingItem) {
-                if(existingItem.quantity < product.stock) {
+                if(existingItem.quantity < product.totalStock) {
                    return prevCart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
                 }
                 return prevCart;
@@ -834,13 +808,13 @@ const POSPage: React.FC = () => {
     };
     
     const updateQuantity = (productId: string, quantity: number) => {
-        const product = products.find(p => p.id === productId);
+        const product = productsWithStock.find(p => p.id === productId);
         if (!product) return;
 
         if (quantity <= 0) {
             removeFromCart(productId);
         } else {
-            const newQuantity = Math.min(quantity, product.stock);
+            const newQuantity = Math.min(quantity, product.totalStock);
             setCart(prevCart => prevCart.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
         }
     };
@@ -897,20 +871,18 @@ const POSPage: React.FC = () => {
         setDiscountValue('');
     };
 
-    const handlePrint = () => {
-        window.print();
-    }
+    const handlePrint = () => { window.print(); }
 
     const handleBarcodeScanSuccess = (decodedText: string) => {
         setIsScannerOpen(false);
-        const product = products.find(p => p.sku.toLowerCase() === decodedText.toLowerCase());
+        const product = productsWithStock.find(p => p.sku.toLowerCase() === decodedText.toLowerCase());
         if (product) {
-            const isExpired = product.expiryDate ? new Date(product.expiryDate) < new Date() : false;
-            if (isExpired) {
-                alert(`Cannot add to cart: The product "${product.name}" is expired.`);
+            const hasNonExpiredStock = product.batches.some(b => !b.expiryDate || new Date(b.expiryDate) >= new Date());
+            if (!hasNonExpiredStock) {
+                alert(`Cannot add to cart: All stock for "${product.name}" is expired.`);
                 return;
             }
-            if (product.stock > 0) {
+            if (product.totalStock > 0) {
                 addToCart(product);
             } else {
                 alert(`Cannot add to cart: The product "${product.name}" is out of stock.`);
@@ -951,11 +923,11 @@ const POSPage: React.FC = () => {
                     <div className="flex-grow overflow-y-auto pr-2">
                         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                             {filteredProducts.map(product => (
-                                <button key={product.id} onClick={() => addToCart(product)} className="border dark:border-gray-700 rounded-lg p-3 text-left hover:border-primary hover:shadow-lg transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed dark:hover:border-primary" disabled={product.stock <= (cart.find(item => item.id === product.id)?.quantity ?? 0)}>
+                                <button key={product.id} onClick={() => addToCart(product)} className="border dark:border-gray-700 rounded-lg p-3 text-left hover:border-primary hover:shadow-lg transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed dark:hover:border-primary" disabled={product.totalStock <= (cart.find(item => item.id === product.id)?.quantity ?? 0)}>
                                     <h3 className="font-bold truncate dark:text-light">{product.name}</h3>
                                     <p className="text-gray-500 dark:text-gray-400">{product.sku}</p>
                                     <p className="font-semibold text-primary dark:text-accent mt-1">{settings.currencySymbol}{product.price.toFixed(2)}</p>
-                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{product.stock} in stock</p>
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{product.totalStock} in stock</p>
                                 </button>
                             ))}
                         </div>
@@ -1094,1152 +1066,834 @@ const Receipt: React.FC<{ receipt: Sale; onNewSale: () => void; onPrint: () => v
                     <p className="text-gray-500 dark:text-gray-400 text-xs">Thank you for your purchase!</p>
                 </div>
             </div>
-            <div className="flex justify-center gap-4 mt-8 no-print">
-                <button onClick={onNewSale} className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">New Sale</button>
-                <button onClick={onPrint} className="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg hover:bg-opacity-90">{icons.print} Print</button>
+            <div className="flex justify-center gap-4 mt-6 no-print">
+                <button onClick={onNewSale} className="px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">
+                    New Sale
+                </button>
+                <button onClick={onPrint} className="flex items-center gap-2 px-6 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">
+                    {icons.print} Print
+                </button>
             </div>
         </div>
     );
 };
 
+// --- GENERIC MANAGEMENT PAGE LAYOUT --- //
 const ManagementPage: React.FC<{
     title: string;
-    children: (searchTerm: string, activeFilters: Record<string, string>) => ReactNode;
-    onAddItem?: () => void;
-    addBtnText?: string;
-    extraActions?: ReactNode;
-    filters?: { id: string; label: string; options: { value: string; label: string }[] }[];
-}> = ({ title, children, onAddItem, addBtnText, extraActions, filters }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
-
-    const handleFilterChange = (filterId: string, value: string) => {
-        setActiveFilters(prev => ({...prev, [filterId]: value}));
-    };
-
+    addBtnLabel?: string;
+    onAdd?: () => void;
+    searchTerm: string;
+    onSearch: (term: string) => void;
+    children: ReactNode;
+    extraButtons?: ReactNode;
+}> = ({ title, addBtnLabel, onAdd, searchTerm, onSearch, children, extraButtons }) => {
     return (
-        <div>
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h1 className="text-3xl font-bold text-dark dark:text-light">{title}</h1>
-                <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto">
-                    {onAddItem && addBtnText && (
-                        <button onClick={onAddItem} className="bg-primary text-white px-4 py-2 rounded-lg flex items-center gap-2 w-full sm:w-auto justify-center">
-                           {icons.plus} {addBtnText}
-                        </button>
-                    )}
-                    {extraActions}
-                </div>
-            </div>
-
-            <div className="bg-white dark:bg-dark-card p-4 rounded-xl shadow-md">
-                <div className="flex flex-col md:flex-row gap-4 mb-4">
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-md p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                <h1 className="text-3xl font-bold text-dark dark:text-light mb-4 sm:mb-0">{title}</h1>
+                <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-2">
                     <div className="relative flex-grow">
                         <input
                             type="text"
                             placeholder="Search..."
                             value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
+                            onChange={e => onSearch(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 border dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-transparent dark:text-white"
                         />
                         <div className="absolute top-0 left-0 pl-3 pt-2.5">{icons.search}</div>
                     </div>
-                    {filters && filters.map(filter => (
-                        <select
-                            key={filter.id}
-                            value={activeFilters[filter.id] || ''}
-                            onChange={(e) => handleFilterChange(filter.id, e.target.value)}
-                            className="bg-transparent border dark:border-gray-600 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-primary dark:text-white dark:bg-dark-card"
+                    {extraButtons}
+                    {onAdd && addBtnLabel && (
+                        <button
+                            onClick={onAdd}
+                            className="flex-shrink-0 flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 text-sm"
                         >
-                            <option value="">All {filter.label}</option>
-                            {filter.options.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    ))}
+                            {icons.plus} {addBtnLabel}
+                        </button>
+                    )}
                 </div>
-                <div className="overflow-x-auto">{children(searchTerm, activeFilters)}</div>
             </div>
+            {children}
         </div>
     );
 };
 
-const InventoryPage: React.FC = () => {
-    const { products, saveProduct, deleteProduct, addAuditLog, categories, suppliers } = useStore();
-    const { user } = useAuth();
-    
-    // Form state
-    const [selectedProductId, setSelectedProductId] = useState('');
-    const [quantity, setQuantity] = useState('');
-    const [expiryDate, setExpiryDate] = useState('');
-    const [lowStockThreshold, setLowStockThreshold] = useState('');
-    
-    // Modal state for edit/delete
-    const [productToEdit, setProductToEdit] = useState<Product | null>(null);
-    const [productToDelete, setProductToDelete] = useState<Product | null>(null);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-    const handleProductSelect = (productId: string) => {
-        setSelectedProductId(productId);
-        // Clear other form fields when a new product is selected to avoid confusion
-        setExpiryDate('');
-        setLowStockThreshold('');
-    };
-    
-    const selectedProduct = useMemo(() => products.find(p => p.id === selectedProductId), [products, selectedProductId]);
-
-    const handleAddStockSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!selectedProduct || !quantity) return;
-
-        const oldStock = selectedProduct.stock;
-        const quantityAdded = parseInt(quantity, 10);
-        if (isNaN(quantityAdded) || quantityAdded <= 0) {
-            alert("Please enter a valid quantity.");
-            return;
-        }
-        const newStock = oldStock + quantityAdded;
-        
-        const updatedProduct: Product = {
-            ...selectedProduct,
-            stock: newStock,
-            expiryDate: expiryDate || selectedProduct.expiryDate,
-            lowStockThreshold: lowStockThreshold ? parseInt(lowStockThreshold, 10) : selectedProduct.lowStockThreshold,
-        };
-        
-        await saveProduct(updatedProduct);
-        await addAuditLog({
-            timestamp: new Date().toISOString(),
-            userId: user!.id,
-            userName: user!.name,
-            productId: selectedProduct.id,
-            productName: selectedProduct.name,
-            oldStock,
-            newStock,
-            reason: 'Stock Added via Inventory Page',
-        });
-        
-        // Reset form
-        setSelectedProductId('');
-        setQuantity('');
-        setExpiryDate('');
-        setLowStockThreshold('');
-    };
-
-    const handleEdit = (product: Product) => {
-        setProductToEdit(product);
-        setIsEditModalOpen(true);
-    };
-
-    const handleSaveEdit = async (product: Product) => {
-        await saveProduct(product);
-        setIsEditModalOpen(false);
-    };
-
-    const handleDelete = (product: Product) => {
-        setProductToDelete(product);
-    };
-
-    const handleConfirmDelete = async () => {
-        if (productToDelete) {
-            await deleteProduct(productToDelete.id);
-            setProductToDelete(null);
-        }
-    };
-    
-    // For the table
-    const [searchTerm, setSearchTerm] = useState('');
-    const filteredProducts = useMemo(() => {
-        return products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    }, [products, searchTerm]);
-    const { items: sortedProducts, requestSort, sortConfig } = useSort(filteredProducts, { key: 'name', direction: 'asc' });
-
-    return (
-        <>
-        <div>
-            <h1 className="text-3xl font-bold text-dark dark:text-light mb-6">Inventory</h1>
-
-            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md mb-6">
-                <h2 className="text-xl font-semibold dark:text-light mb-4">Add Stock</h2>
-                <form onSubmit={handleAddStockSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-                    <div className="lg:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Product</label>
-                        <select
-                            value={selectedProductId}
-                            onChange={(e) => handleProductSelect(e.target.value)}
-                            className={INPUT_FIELD_CLASSES}
-                            required
-                        >
-                            <option value="">Select a product...</option>
-                            {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
-                        <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className={INPUT_FIELD_CLASSES} required min="1" />
-                    </div>
-                    <div className="flex flex-col">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expiry Date</label>
-                        <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className={INPUT_FIELD_CLASSES} />
-                        {selectedProduct && <small className="text-gray-500 dark:text-gray-400 text-xs mt-1">Current: {selectedProduct.expiryDate || 'N/A'}</small>}
-                    </div>
-                    <div className="flex flex-col">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Low Stock Alert</label>
-                        <input type="number" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} className={INPUT_FIELD_CLASSES} min="0" />
-                        {selectedProduct && <small className="text-gray-500 dark:text-gray-400 text-xs mt-1">Current: {selectedProduct.lowStockThreshold}</small>}
-                    </div>
-                    <button type="submit" disabled={!selectedProductId || !quantity} className="bg-primary text-white px-4 py-2 rounded-lg h-10 disabled:bg-gray-400 dark:disabled:bg-gray-600 self-center mt-1">Add Stock</button>
-                </form>
-            </div>
-
-            <div className="bg-white dark:bg-dark-card p-4 rounded-xl shadow-md">
-                 <div className="flex justify-end mb-4">
-                     <div className="relative w-full max-w-xs">
-                        <input
-                            type="text"
-                            placeholder="Search by name..."
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-transparent dark:text-white"
-                        />
-                        <div className="absolute top-0 left-0 pl-3 pt-2.5">{icons.search}</div>
-                    </div>
-                 </div>
-                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gray-50 dark:bg-gray-800">
-                            <tr>
-                                <SortableHeader label="Product Name" sortKey="name" {...{sortConfig, requestSort}} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Quantity" sortKey="stock" {...{sortConfig, requestSort}} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Expiry Date</th>
-                                <SortableHeader label="Stock Alert" sortKey="lowStockThreshold" {...{sortConfig, requestSort}} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                            {sortedProducts.map(p => (
-                                <tr key={p.id}>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{p.name}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-bold">{p.stock}</td>
-                                    <td className={`px-4 py-4 whitespace-nowrap text-sm ${getExpiryStatus(p.expiryDate).className}`}>{getExpiryStatus(p.expiryDate).text}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{p.lowStockThreshold}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(p)} className="text-primary hover:text-opacity-80">{icons.edit}</button>
-                                            <button onClick={() => handleDelete(p)} className="text-red-600 hover:text-red-800">{icons.trash}</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                 </div>
-            </div>
-        </div>
-        
-        <ProductModal 
-            isOpen={isEditModalOpen} 
-            onClose={() => setIsEditModalOpen(false)} 
-            onSave={handleSaveEdit} 
-            product={productToEdit} 
-            categories={categories} 
-            suppliers={suppliers} 
-        />
-        <ConfirmationModal 
-            isOpen={!!productToDelete} 
-            onClose={() => setProductToDelete(null)} 
-            onConfirm={handleConfirmDelete} 
-            title="Delete Product"
-        >
-            Are you sure you want to delete the product "{productToDelete?.name}"? This action cannot be undone and will remove it from inventory entirely.
-        </ConfirmationModal>
-        </>
-    );
-};
-
-
-const ProductDetailPage: React.FC<{ product: Product, onBack: () => void }> = ({ product, onBack }) => {
-    const { settings } = useStore();
-    const qrCodeRef = useRef<HTMLDivElement>(null);
+// --- Product Management --- //
+const ProductModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    product: Product | null;
+    prefilledSku?: string;
+}> = ({ isOpen, onClose, product, prefilledSku }) => {
+    const { saveProduct, categories, suppliers } = useStore();
+    const [formData, setFormData] = useState<Partial<Product>>({});
 
     useEffect(() => {
-        if(qrCodeRef.current) {
-            qrCodeRef.current.innerHTML = '';
-            QRCode.toCanvas(qrCodeRef.current, product.sku, { width: 128 }, (error: any) => {
-                if (error) console.error(error)
-            })
+        if (isOpen) {
+            if (product) {
+                setFormData(product);
+            } else {
+                 setFormData({ 
+                    sku: prefilledSku || '',
+                    name: '',
+                    price: 0,
+                    cost: 0,
+                    category: categories[0]?.name || '',
+                    lowStockThreshold: 10,
+                    supplierId: suppliers[0]?.id || '',
+                    manufacturer: '',
+                    description: ''
+                });
+            }
         }
-    }, [product.sku]);
-    
-    const profitMargin = (product.cost && product.price > product.cost) 
-        ? ((product.price - product.cost) / product.price) * 100
-        : 0;
+    }, [isOpen, product, prefilledSku, categories, suppliers]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const supplier = suppliers.find(s => s.id === formData.supplierId);
+        const productToSave = {
+            ...formData,
+            id: formData.id || `prod-${Date.now()}`,
+            price: parseFloat(String(formData.price || 0)),
+            cost: parseFloat(String(formData.cost || 0)),
+            lowStockThreshold: parseInt(String(formData.lowStockThreshold || 0)),
+            supplierName: supplier?.name
+        } as Product;
+        await saveProduct(productToSave);
+        onClose();
+    };
 
     return (
-        <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-            <button onClick={onBack} className="flex items-center gap-2 text-primary mb-4">{icons.arrowLeft} Back to list</button>
-            <div className="flex flex-col md:flex-row gap-8">
-                <div className="md:w-2/3">
-                    <h1 className="text-3xl font-bold dark:text-light mb-1">{product.name}</h1>
-                    <p className="text-gray-500 dark:text-gray-400 mb-4">{product.sku}</p>
-                    
-                    <div className="grid grid-cols-2 gap-4 mt-6 text-sm">
-                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Price</p>
-                            <p className="font-semibold text-lg dark:text-light">{settings.currencySymbol}{product.price.toFixed(2)}</p>
-                        </div>
-                         <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Cost</p>
-                            <p className="font-semibold text-lg dark:text-light">{product.cost ? `${settings.currencySymbol}${product.cost.toFixed(2)}` : 'N/A'}</p>
-                        </div>
-                         <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Profit Margin</p>
-                            <p className="font-semibold text-lg dark:text-light">{profitMargin > 0 ? `${profitMargin.toFixed(2)}%` : 'N/A'}</p>
-                        </div>
-                         <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Stock</p>
-                            <p className={`font-semibold text-lg ${product.stock <= product.lowStockThreshold ? 'text-red-500' : 'dark:text-light'}`}>{product.stock}</p>
-                        </div>
-                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Low Stock Threshold</p>
-                            <p className="font-semibold text-lg dark:text-light">{product.lowStockThreshold}</p>
-                        </div>
-                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Category</p>
-                            <p className="font-semibold text-lg dark:text-light">{product.category}</p>
-                        </div>
-                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Supplier</p>
-                            <p className="font-semibold text-lg dark:text-light">{product.supplierName || 'N/A'}</p>
-                        </div>
-                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
-                            <p className="text-gray-500 dark:text-gray-400">Expiry Date</p>
-                            <p className={`font-semibold text-lg ${getExpiryStatus(product.expiryDate).className}`}>{getExpiryStatus(product.expiryDate).text}</p>
-                        </div>
+        <Modal isOpen={isOpen} onClose={onClose} title={product ? 'Edit Product' : 'Add Product'} maxWidth="max-w-2xl">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">SKU / Barcode *</label>
+                        <input type="text" name="sku" value={formData.sku || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Product Name *</label>
+                        <input type="text" name="name" value={formData.name || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
                     </div>
                 </div>
-                <div className="md:w-1/3 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg">
-                    <p className="font-semibold mb-2 dark:text-light">Product SKU</p>
-                    <div ref={qrCodeRef} className="bg-white p-2 rounded-lg"></div>
+                <div>
+                    <label className="block text-sm font-medium">Description</label>
+                    <textarea name="description" value={formData.description || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} rows={3}></textarea>
                 </div>
-            </div>
-        </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Manufacturer</label>
+                        <input type="text" name="manufacturer" value={formData.manufacturer || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Category *</label>
+                        <select name="category" value={formData.category || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required>
+                           {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Price *</label>
+                        <input type="number" name="price" step="0.01" value={formData.price || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium">Cost</label>
+                        <input type="number" name="cost" step="0.01" value={formData.cost || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Low Stock Threshold *</label>
+                        <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Supplier</label>
+                         <select name="supplierId" value={formData.supplierId || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES}>
+                            <option value="">None</option>
+                           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="pt-4 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
+                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">{product ? 'Save Changes' : 'Add Product'}</button>
+                </div>
+            </form>
+        </Modal>
     );
 };
 
 const ProductManagementPage: React.FC = () => {
-    const { products, saveProduct, deleteProduct, categories, suppliers, bulkAddProducts } = useStore();
+    const { productsWithStock, deleteProduct } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-    const [productToEdit, setProductToEdit] = useState<Product | null>(null);
-    const [productToDelete, setProductToDelete] = useState<Product | null>(null);
-    const [productToView, setProductToView] = useState<Product | null>(null);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [prefilledSku, setPrefilledSku] = useState<string | undefined>(undefined);
+    const [searchTerm, setSearchTerm] = useState('');
 
-    const handleAdd = () => {
-        setProductToEdit(null);
+    const filteredProducts = useMemo(() => {
+        return productsWithStock.filter(p => 
+            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.supplierName?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [productsWithStock, searchTerm]);
+    
+    const { items: sortedProducts, requestSort, sortConfig } = useSort(filteredProducts, { key: 'name', direction: 'asc' });
+
+    const openAddModal = () => {
+        setSelectedProduct(null);
+        setPrefilledSku(undefined);
         setIsModalOpen(true);
     };
 
-    const handleEdit = (product: Product) => {
-        setProductToEdit(product);
+    const openEditModal = (product: Product) => {
+        setSelectedProduct(product);
+        setPrefilledSku(undefined);
         setIsModalOpen(true);
     };
-
-    const handleDelete = (product: Product) => {
-        setProductToDelete(product);
+    
+    const openDeleteConfirm = (product: Product) => {
+        setSelectedProduct(product);
+        setIsConfirmOpen(true);
     };
 
-    const handleConfirmDelete = async () => {
-        if (productToDelete) {
-            await deleteProduct(productToDelete.id);
-            setProductToDelete(null);
+    const handleDelete = async () => {
+        if (selectedProduct) {
+            await deleteProduct(selectedProduct.id);
+            setIsConfirmOpen(false);
+            setSelectedProduct(null);
         }
     };
 
-    const handleSave = async (product: Product) => {
-        await saveProduct(product);
-        setIsModalOpen(false);
+    const handleBarcodeScanSuccessForAdd = (decodedText: string) => {
+        const existingProduct = productsWithStock.find(p => p.sku.toLowerCase() === decodedText.toLowerCase());
+        if (existingProduct) {
+            openEditModal(existingProduct);
+        } else {
+            setSelectedProduct(null);
+            setPrefilledSku(decodedText);
+            setIsModalOpen(true);
+        }
     };
-
-    const handleBulkSave = async (newProducts: Omit<Product, 'id'>[]) => {
-        const result = await bulkAddProducts(newProducts);
-        alert(`${result.added} products added, ${result.updated} products updated.`);
-        setIsBulkModalOpen(false);
-    };
-
-    if (productToView) {
-        return <ProductDetailPage product={productToView} onBack={() => setProductToView(null)} />;
-    }
 
     return (
         <>
             <ManagementPage
                 title="Products"
-                addBtnText="Add Product"
-                onAddItem={handleAdd}
-                extraActions={
-                    <button onClick={() => setIsBulkModalOpen(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 w-full sm:w-auto justify-center">
-                        {icons.upload} Bulk Import
+                addBtnLabel="Add Product"
+                onAdd={openAddModal}
+                searchTerm={searchTerm}
+                onSearch={setSearchTerm}
+                extraButtons={
+                    <button
+                        onClick={() => setIsScannerOpen(true)}
+                        className="flex-shrink-0 flex items-center justify-center gap-2 bg-secondary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 text-sm"
+                    >
+                        {icons.barcode} Scan to Add
                     </button>
                 }
-                filters={[
-                    { id: 'category', label: 'Categories', options: categories.map(c => ({ value: c.name, label: c.name })) },
-                    { id: 'stockStatus', label: 'Stock Status', options: [
-                        { value: 'inStock', label: 'In Stock' },
-                        { value: 'lowStock', label: 'Low Stock' },
-                        { value: 'outOfStock', label: 'Out of Stock' }
-                    ]}
-                ]}
             >
-                {(searchTerm, activeFilters) => {
-                    const filtered = products.filter(p => {
-                        const searchMatch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.toLowerCase().includes(searchTerm.toLowerCase());
-                        const categoryMatch = !activeFilters.category || p.category === activeFilters.category;
-                        const stockStatusMatch = !activeFilters.stockStatus ||
-                            (activeFilters.stockStatus === 'inStock' && p.stock > p.lowStockThreshold) ||
-                            (activeFilters.stockStatus === 'lowStock' && p.stock > 0 && p.stock <= p.lowStockThreshold) ||
-                            (activeFilters.stockStatus === 'outOfStock' && p.stock === 0);
-                        return searchMatch && categoryMatch && stockStatusMatch;
-                    });
-                    const { items: sortedProducts, requestSort, sortConfig } = useSort(filtered, { key: 'name', direction: 'asc' });
-
-                    return (
-                        <>
-                            {/* Desktop View */}
-                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 hidden md:table">
-                                <thead className="bg-gray-50 dark:bg-gray-800">
-                                    <tr>
-                                        <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="SKU" sortKey="sku" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Price" sortKey="price" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Stock" sortKey="stock" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Category" sortKey="category" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Expiry</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Supplier</th>
-                                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                                    {sortedProducts.map(p => {
-                                        const expiryStatus = getExpiryStatus(p.expiryDate);
-                                        const isLowStock = p.stock > 0 && p.stock <= p.lowStockThreshold;
-                                        const isOutOfStock = p.stock === 0;
-                                        const rowClass = isOutOfStock ? 'bg-red-50 dark:bg-red-900/20 opacity-70' : isLowStock ? 'bg-amber-50 dark:bg-amber-900/20' : '';
-                                        return (
-                                            <tr key={p.id} className={`${rowClass}`}>
-                                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white cursor-pointer" onClick={() => setProductToView(p)}>{p.name}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{p.sku}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${p.price.toFixed(2)}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap text-sm"><span className={`font-bold ${isOutOfStock ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white'}`}>{p.stock}</span></td>
-                                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{p.category}</td>
-                                                <td className={`px-4 py-4 whitespace-nowrap text-sm ${expiryStatus.className}`}>{expiryStatus.text}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{p.supplierName || 'N/A'}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                    <div className="flex justify-end gap-2">
-                                                        <button onClick={() => handleEdit(p)} className="text-primary hover:text-opacity-80">{icons.edit}</button>
-                                                        <button onClick={() => handleDelete(p)} className="text-red-600 hover:text-red-800">{icons.trash}</button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                            {/* Mobile View */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
-                                {sortedProducts.map(p => {
-                                    const expiryStatus = getExpiryStatus(p.expiryDate);
-                                    const isLowStock = p.stock > 0 && p.stock <= p.lowStockThreshold;
-                                    const isOutOfStock = p.stock === 0;
-                                    const cardClass = isOutOfStock ? 'bg-red-50 dark:bg-red-900/20' : isLowStock ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-gray-50 dark:bg-gray-800/50';
-                                    return (
-                                        <div key={p.id} className={`p-4 rounded-lg border dark:border-gray-700 ${cardClass}`}>
-                                            <div className="flex justify-between items-start">
-                                                <div className="flex-grow" onClick={() => setProductToView(p)}>
-                                                    <p className="font-bold dark:text-light">{p.name}</p>
-                                                    <p className="text-sm text-gray-500 dark:text-gray-400">{p.sku}</p>
-                                                    <p className="text-sm text-gray-500 dark:text-gray-400">{p.supplierName || 'N/A'}</p>
-                                                </div>
-                                                <div className="flex gap-2 ml-2">
-                                                    <button onClick={() => handleEdit(p)} className="text-primary">{icons.edit}</button>
-                                                    <button onClick={() => handleDelete(p)} className="text-red-500">{icons.trash}</button>
-                                                </div>
-                                            </div>
-                                            <div className="mt-4 flex justify-between items-center text-sm">
-                                                <div>
-                                                    <p className="font-semibold text-primary dark:text-accent">${p.price.toFixed(2)}</p>
-                                                    <p><span className="text-gray-500 dark:text-gray-400">Stock: </span><span className={`font-bold ${isOutOfStock ? 'text-red-600' : isLowStock ? 'text-amber-600' : 'dark:text-white'}`}>{p.stock}</span></p>
-                                                </div>
-                                                <div className="text-right">
-                                                     <p className={`font-semibold ${expiryStatus.className}`}>{expiryStatus.text}</p>
-                                                     <p className="text-gray-500 dark:text-gray-400">{p.category}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </>
-                    );
-                }}
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="SKU" sortKey="sku" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Category" sortKey="category" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Price" sortKey="price" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                                <SortableHeader label="Cost" sortKey="cost" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                                <SortableHeader label="Total Stock" sortKey="totalStock" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                                <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
+                                <th className="px-4 py-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedProducts.map(p => (
+                                <tr key={p.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{p.name}</td>
+                                    <td className="px-4 py-3">{p.sku}</td>
+                                    <td className="px-4 py-3">{p.category}</td>
+                                    <td className="px-4 py-3 text-right">{p.price.toFixed(2)}</td>
+                                    <td className="px-4 py-3 text-right">{p.cost?.toFixed(2) || 'N/A'}</td>
+                                    <td className={`px-4 py-3 text-right font-bold ${p.totalStock <= p.lowStockThreshold ? 'text-red-500' : ''}`}>{p.totalStock}</td>
+                                    <td className="px-4 py-3">{p.supplierName || 'N/A'}</td>
+                                    <td className="px-4 py-3 flex gap-2">
+                                        <button onClick={() => openEditModal(p)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</button>
+                                        <button onClick={() => openDeleteConfirm(p)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </ManagementPage>
-            <ProductModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} product={productToEdit} categories={categories} suppliers={suppliers} />
+            <ProductModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} product={selectedProduct} prefilledSku={prefilledSku} />
             <ConfirmationModal 
-                isOpen={!!productToDelete} 
-                onClose={() => setProductToDelete(null)} 
-                onConfirm={handleConfirmDelete} 
+                isOpen={isConfirmOpen} 
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={handleDelete}
                 title="Delete Product"
             >
-                Are you sure you want to delete the product "{productToDelete?.name}"? This action cannot be undone.
+                Are you sure you want to delete the product "{selectedProduct?.name}"? This will also remove all its inventory records and cannot be undone.
             </ConfirmationModal>
-            <BulkAddModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onSave={handleBulkSave} />
+            <BarcodeScannerModal
+                isOpen={isScannerOpen}
+                onClose={() => setIsScannerOpen(false)}
+                onScanSuccess={handleBarcodeScanSuccessForAdd}
+            />
         </>
     );
 };
 
-const ProductModal: React.FC<{
+// --- Inventory Management --- //
+const InventoryModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    onSave: (product: Product) => void;
-    product: Product | null;
-    categories: Category[];
-    suppliers: Supplier[];
-}> = ({ isOpen, onClose, onSave, product, categories, suppliers }) => {
-    const [formData, setFormData] = useState<Partial<Product>>({});
-
-    useEffect(() => {
-        if (isOpen) {
-            setFormData(product || {
-                sku: '',
-                name: '',
-                price: 0,
-                cost: 0,
-                stock: 0,
-                category: categories.length > 0 ? categories[0].name : '',
-                lowStockThreshold: 10,
-                supplierId: '',
-                expiryDate: ''
-            });
-        }
-    }, [product, isOpen, categories]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        
-        if (name === 'supplierId') {
-            const supplier = suppliers.find(s => s.id === value);
-            setFormData(prev => ({ ...prev, supplierId: value, supplierName: supplier?.name }));
-        } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
-        }
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const productToSave: Product = {
-            id: product?.id || `prod-${Date.now()}`,
-            sku: formData.sku!,
-            name: formData.name!,
-            price: parseFloat(String(formData.price)) || 0,
-            cost: parseFloat(String(formData.cost)) || undefined,
-            stock: parseInt(String(formData.stock)) || 0,
-            category: formData.category!,
-            lowStockThreshold: parseInt(String(formData.lowStockThreshold)) || 0,
-            expiryDate: formData.expiryDate || undefined,
-            supplierId: formData.supplierId || undefined,
-            supplierName: formData.supplierName || undefined,
-        };
-        onSave(productToSave);
-    };
-
-    const isFormValid = formData.name && formData.sku && formData.price! > 0;
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={product ? 'Edit Product' : 'Add Product'} maxWidth="max-w-2xl">
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Product Name</label>
-                    <input type="text" name="name" value={formData.name || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">SKU</label>
-                    <input type="text" name="sku" value={formData.sku || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
-                    <select name="category" value={formData.category} onChange={handleChange} className={INPUT_FIELD_CLASSES} required>
-                        {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price</label>
-                    <input type="number" name="price" value={formData.price || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required step="0.01" min="0" />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Cost (Optional)</label>
-                    <input type="number" name="cost" value={formData.cost || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} step="0.01" min="0" />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Stock Quantity</label>
-                    <input type="number" name="stock" value={formData.stock || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required min="0" />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Low Stock Threshold</label>
-                    <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required min="0" />
-                </div>
-                 <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier (Optional)</label>
-                    <select name="supplierId" value={formData.supplierId || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES}>
-                        <option value="">None</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                </div>
-                <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expiry Date (Optional)</label>
-                    <input type="date" name="expiryDate" value={formData.expiryDate || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                </div>
-                <div className="md:col-span-2 flex justify-end gap-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" disabled={!isFormValid} className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400">Save</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const BulkAddModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (products: Omit<Product, 'id'>[]) => void;
-}> = ({ isOpen, onClose, onSave }) => {
-    const [csvText, setCsvText] = useState('');
-
-    const handleSave = () => {
-        const lines = csvText.split('\n').filter(line => line.trim());
-        const headers = lines[0].split(',').map(h => h.trim());
-        const products: Omit<Product, 'id'>[] = [];
-
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',');
-            const productData: any = {};
-            headers.forEach((header, index) => {
-                productData[header] = values[index]?.trim();
-            });
-
-            products.push({
-                sku: productData.sku,
-                name: productData.name,
-                price: parseFloat(productData.price) || 0,
-                cost: parseFloat(productData.cost) || 0,
-                stock: parseInt(productData.stock) || 0,
-                category: productData.category,
-                lowStockThreshold: parseInt(productData.lowStockThreshold) || 10,
-                expiryDate: productData.expiryDate || undefined,
-                supplierName: productData.supplierName || undefined,
-            });
-        }
-        onSave(products);
-    };
-    
-    const downloadTemplate = () => {
-        const csvContent = "data:text/csv;charset=utf-8," 
-            + "name,sku,price,cost,stock,category,lowStockThreshold,expiryDate,supplierName\n"
-            + "Sample Medicine,MED-101,10.99,5.50,100,Medicine,20,2025-12-31,PharmaCore Inc.";
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "product_template.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Bulk Add Products" maxWidth="max-w-2xl">
-            <div className="space-y-4">
-                <div>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">Paste CSV content here. The first line must be a header. Required headers: <strong>name, sku, price, stock, category</strong>. Optional: <strong>cost, lowStockThreshold, expiryDate, supplierName</strong>.</p>
-                    <button onClick={downloadTemplate} className="text-sm text-primary hover:underline mt-1">Download CSV Template</button>
-                </div>
-                <textarea
-                    value={csvText}
-                    onChange={(e) => setCsvText(e.target.value)}
-                    rows={10}
-                    className="w-full input-field"
-                    placeholder="name,sku,price,stock,category..."
-                />
-                 <div className="flex justify-end gap-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button onClick={handleSave} disabled={!csvText} className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400">Import Products</button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
-const SalesHistoryPage: React.FC = () => {
-    const { sales, settings } = useStore();
-    const [saleToView, setSaleToView] = useState<Sale | null>(null);
-
-    const downloadCSV = () => {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Sale ID,Timestamp,Cashier,Total,Profit,Payment Method,Items\n";
-
-        sales.forEach(sale => {
-            const items = sale.items.map(item => `${item.name} (x${item.quantity})`).join('; ');
-            csvContent += `${sale.id},${new Date(sale.timestamp).toLocaleString()},${sale.cashierName},${sale.total.toFixed(2)},${(sale.totalProfit || 0).toFixed(2)},${sale.paymentMethod},"${items}"\n`;
-        });
-
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "sales_history.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    return (
-        <>
-            <ManagementPage
-                title="Sales History"
-                extraActions={
-                    <button onClick={downloadCSV} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                        {icons.download} Export CSV
-                    </button>
-                }
-            >
-                {(searchTerm) => {
-                    const filtered = sales.filter(s =>
-                        s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        s.cashierName.toLowerCase().includes(searchTerm.toLowerCase())
-                    );
-                    const { items: sortedSales, requestSort, sortConfig } = useSort(filtered, { key: 'timestamp', direction: 'desc' });
-
-                    return (
-                        <>
-                            {/* Desktop View */}
-                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 hidden md:table">
-                                <thead className="bg-gray-50 dark:bg-gray-800">
-                                    <tr>
-                                        <SortableHeader label="Sale ID" sortKey="id" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Date" sortKey="timestamp" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Cashier" sortKey="cashierName" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Total" sortKey="total" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <SortableHeader label="Profit" sortKey="totalProfit" sortConfig={sortConfig} requestSort={requestSort} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                                    {sortedSales.map(sale => (
-                                        <tr key={sale.id}>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{sale.id}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(sale.timestamp).toLocaleString()}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{sale.cashierName}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{settings.currencySymbol}{sale.total.toFixed(2)}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm text-green-600 dark:text-green-400">{settings.currencySymbol}{(sale.totalProfit || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                <button onClick={() => setSaleToView(sale)} className="text-primary hover:underline">View Details</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                             {/* Mobile View */}
-                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
-                                {sortedSales.map(sale => (
-                                    <div key={sale.id} className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 border dark:border-gray-700">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <p className="font-bold dark:text-light break-all">{sale.id}</p>
-                                                <p className="text-sm text-gray-500 dark:text-gray-400">{new Date(sale.timestamp).toLocaleString()}</p>
-                                            </div>
-                                            <button onClick={() => setSaleToView(sale)} className="text-primary text-sm whitespace-nowrap ml-2">View</button>
-                                        </div>
-                                        <div className="mt-4 flex justify-between items-end text-sm">
-                                            <div>
-                                                <p className="text-gray-500 dark:text-gray-400">Cashier: <span className="dark:text-light">{sale.cashierName}</span></p>
-                                                 <p className="text-gray-500 dark:text-gray-400">Profit: <span className="text-green-600 dark:text-green-400 font-semibold">{settings.currencySymbol}{(sale.totalProfit || 0).toFixed(2)}</span></p>
-                                            </div>
-                                            <p className="font-bold text-lg text-primary dark:text-accent">{settings.currencySymbol}{sale.total.toFixed(2)}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    );
-                }}
-            </ManagementPage>
-            {saleToView && (
-                <Modal isOpen={!!saleToView} onClose={() => setSaleToView(null)} title={`Sale Details: ${saleToView.id}`} maxWidth="max-w-lg">
-                    <Receipt receipt={saleToView} onNewSale={() => setSaleToView(null)} onPrint={() => {}} settings={settings} />
-                </Modal>
-            )}
-        </>
-    );
-};
-
-const UserManagementPage: React.FC = () => {
-    const { users, saveUser, deleteUser } = useStore();
-    const { user: currentUser } = useAuth();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [userToEdit, setUserToEdit] = useState<User | null>(null);
-    const [userToDelete, setUserToDelete] = useState<Omit<User, 'password'> | null>(null);
-
-    const handleAdd = () => {
-        setUserToEdit(null);
-        setIsModalOpen(true);
-    };
-    const handleEdit = (user: Omit<User, 'password'>) => {
-        setUserToEdit(user as User);
-        setIsModalOpen(true);
-    };
-    const handleDelete = (user: Omit<User, 'password'>) => {
-        if(user.id === currentUser?.id) {
-            alert("You cannot delete your own account.");
-            return;
-        }
-        setUserToDelete(user);
-    };
-    const handleConfirmDelete = async () => {
-        if(userToDelete) {
-            await deleteUser(userToDelete.id);
-            setUserToDelete(null);
-        }
-    };
-    const handleSave = async (user: User) => {
-        await saveUser(user);
-        setIsModalOpen(false);
-    };
-
-    return (
-        <>
-            <ManagementPage title="User Management" addBtnText="Add User" onAddItem={handleAdd}>
-                {(searchTerm) => {
-                    const filtered = users.filter(u =>
-                        u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        u.role.toLowerCase().includes(searchTerm.toLowerCase())
-                    );
-                    const { items: sortedUsers, requestSort, sortConfig } = useSort(filtered, { key: 'name', direction: 'asc' });
-
-                    return (
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-800">
-                                <tr>
-                                    <SortableHeader label="Name" sortKey="name" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <SortableHeader label="Username" sortKey="username" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <SortableHeader label="Role" sortKey="role" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                             <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                                {sortedUsers.map(u => (
-                                    <tr key={u.id}>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{u.name}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{u.username}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{u.role}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => handleEdit(u)} className="text-primary hover:text-opacity-80">{icons.edit}</button>
-                                                <button onClick={() => handleDelete(u)} className="text-red-600 hover:text-red-800" disabled={u.id === currentUser?.id}>{icons.trash}</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    );
-                }}
-            </ManagementPage>
-            <UserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} user={userToEdit} />
-            <ConfirmationModal 
-                isOpen={!!userToDelete} 
-                onClose={() => setUserToDelete(null)} 
-                onConfirm={handleConfirmDelete} 
-                title="Delete User"
-            >
-                Are you sure you want to delete user "{userToDelete?.name}"? This action cannot be undone.
-            </ConfirmationModal>
-        </>
-    );
-};
-
-const UserModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (user: User) => void;
-    user: User | null;
-}> = ({ isOpen, onClose, onSave, user }) => {
-    const [formData, setFormData] = useState<Partial<User>>({});
+}> = ({ isOpen, onClose }) => {
+    const { products, saveInventoryItem } = useStore();
+    const [productId, setProductId] = useState<string>('');
+    const [quantity, setQuantity] = useState<string>('');
+    const [expiryDate, setExpiryDate] = useState<string>('');
 
     useEffect(() => {
         if(isOpen) {
-            setFormData(user || { role: UserRole.CASHIER });
+            setProductId(products[0]?.id || '');
+            setQuantity('');
+            setExpiryDate('');
         }
-    }, [user, isOpen]);
+    }, [isOpen, products]);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const item: Omit<InventoryItem, 'id' | 'addedDate'> = {
+            productId,
+            quantity: parseInt(quantity),
+            expiryDate: expiryDate || undefined,
+        };
+        await saveInventoryItem({
+            ...item,
+            id: `inv-${Date.now()}`,
+            addedDate: new Date().toISOString()
+        });
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Add New Stock Batch">
+             <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium">Product *</label>
+                    <select value={productId} onChange={e => setProductId(e.target.value)} className={INPUT_FIELD_CLASSES} required>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">Quantity *</label>
+                    <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className={INPUT_FIELD_CLASSES} required min="1" />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">Expiry Date</label>
+                    <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className={INPUT_FIELD_CLASSES} />
+                </div>
+                 <div className="pt-4 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
+                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">Add Stock</button>
+                </div>
+             </form>
+        </Modal>
+    );
+};
+
+const InventoryManagementPage: React.FC = () => {
+    const { inventory, products } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const inventoryWithProductInfo = useMemo(() => {
+        return inventory.map(item => {
+            const product = products.find(p => p.id === item.productId);
+            return {
+                ...item,
+                productName: product?.name || 'N/A',
+                productSku: product?.sku || 'N/A',
+            }
+        });
+    }, [inventory, products]);
+
+    const filteredInventory = useMemo(() => {
+        return inventoryWithProductInfo.filter(item => 
+            item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.productSku.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [inventoryWithProductInfo, searchTerm]);
+
+    const { items: sortedInventory, requestSort, sortConfig } = useSort(filteredInventory, { key: 'addedDate', direction: 'desc' });
+    
+    return (
+        <>
+            <ManagementPage
+                title="Inventory Batches"
+                addBtnLabel="Add Stock"
+                onAdd={() => setIsModalOpen(true)}
+                searchTerm={searchTerm}
+                onSearch={setSearchTerm}
+            >
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <SortableHeader label="Product" sortKey="productName" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Quantity" sortKey="quantity" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                                <SortableHeader label="Expiry Date" sortKey="expiryDate" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Date Added" sortKey="addedDate" sortConfig={sortConfig} requestSort={requestSort} />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedInventory.map(item => {
+                                const expiryStatus = getExpiryStatus(item.expiryDate);
+                                return (
+                                    <tr key={item.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                            {item.productName}
+                                            <span className="block text-xs text-gray-400">{item.productSku}</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">{item.quantity}</td>
+                                        <td className={`px-4 py-3 ${expiryStatus.className}`}>{expiryStatus.text}</td>
+                                        <td className="px-4 py-3">{new Date(item.addedDate).toLocaleDateString()}</td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </ManagementPage>
+            <InventoryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+        </>
+    );
+};
+
+// --- Sales and Reports --- //
+const SalesHistoryPage: React.FC = () => { 
+    const { sales, settings } = useStore();
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredSales = useMemo(() => {
+        return sales.filter(s =>
+            s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            s.cashierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            s.items.some(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+    }, [sales, searchTerm]);
+
+    const { items: sortedSales, requestSort, sortConfig } = useSort(filteredSales, { key: 'timestamp', direction: 'desc' });
+    
+    return (
+        <ManagementPage
+            title="Sales History"
+            searchTerm={searchTerm}
+            onSearch={setSearchTerm}
+        >
+             <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <SortableHeader label="Sale ID" sortKey="id" sortConfig={sortConfig} requestSort={requestSort} />
+                            <SortableHeader label="Date" sortKey="timestamp" sortConfig={sortConfig} requestSort={requestSort} />
+                            <SortableHeader label="Cashier" sortKey="cashierName" sortConfig={sortConfig} requestSort={requestSort} />
+                            <th className="px-4 py-3">Items</th>
+                            <SortableHeader label="Total" sortKey="total" sortConfig={sortConfig} requestSort={requestSort} className="text-right"/>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sortedSales.map(sale => (
+                            <tr key={sale.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-4 py-3 font-mono text-xs">{sale.id}</td>
+                                <td className="px-4 py-3">{new Date(sale.timestamp).toLocaleString()}</td>
+                                <td className="px-4 py-3">{sale.cashierName}</td>
+                                <td className="px-4 py-3">{sale.items.reduce((sum, i) => sum + i.quantity, 0)}</td>
+                                <td className="px-4 py-3 font-bold text-right">{settings.currencySymbol}{sale.total.toFixed(2)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </ManagementPage>
+    );
+};
+
+const ReportsPage: React.FC = () => {
+    const { sales, productsWithStock, categories, suppliers, settings } = useStore();
+
+    const salesSummary = useMemo(() => {
+        const totalRevenue = sales.reduce((sum, s) => sum + s.total, 0);
+        const totalProfit = sales.reduce((sum, s) => sum + (s.totalProfit || 0), 0);
+        const averageSale = sales.length > 0 ? totalRevenue / sales.length : 0;
+        return { totalRevenue, totalProfit, averageSale };
+    }, [sales]);
+
+    const salesBy = (key: 'category' | 'supplierName') => {
+        const map = new Map<string, { revenue: number, profit: number, units: number }>();
+        sales.forEach(sale => {
+            sale.items.forEach(item => {
+                const itemKey = item[key] || 'N/A';
+                const current = map.get(itemKey) || { revenue: 0, profit: 0, units: 0 };
+                const itemProfit = (item.price - (item.cost || 0)) * item.quantity;
+                current.revenue += item.price * item.quantity;
+                current.profit += itemProfit;
+                current.units += item.quantity;
+                map.set(itemKey, current);
+            });
+        });
+        return Array.from(map.entries()).map(([name, data]) => ({ name, ...data })).sort((a,b) => b.revenue - a.revenue);
+    };
+
+    const salesByCategory = useMemo(() => salesBy('category'), [sales]);
+    const salesBySupplier = useMemo(() => salesBy('supplierName'), [sales]);
+
+    const itemSalesReport = useMemo(() => {
+        const map = new Map<string, { name: string; sku: string; units: number, revenue: number, profit: number }>();
+        sales.forEach(sale => {
+            sale.items.forEach(item => {
+                const current = map.get(item.id) || { name: item.name, sku: item.sku, units: 0, revenue: 0, profit: 0 };
+                current.units += item.quantity;
+                current.revenue += item.price * item.quantity;
+                current.profit += (item.price - (item.cost || 0)) * item.quantity;
+                map.set(item.id, current);
+            });
+        });
+        return Array.from(map.values()).sort((a,b) => b.revenue - a.revenue);
+    }, [sales]);
+
+    const currentStockReport = useMemo(() => {
+        return productsWithStock.map(p => ({
+            ...p,
+            stockValueCost: (p.cost || 0) * p.totalStock,
+            stockValueRetail: p.price * p.totalStock,
+        }));
+    }, [productsWithStock]);
+
+    const ProgressBar: React.FC<{ value: number, max: number }> = ({ value, max }) => {
+        const percentage = max > 0 ? (value / max) * 100 : 0;
+        return <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5"><div className="bg-primary h-2.5 rounded-full" style={{ width: `${percentage}%`}}></div></div>
+    };
+
+    return (
+        <div className="space-y-6">
+            <h1 className="text-3xl font-bold text-dark dark:text-light">Reports</h1>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard title="Total Revenue" value={`${settings.currencySymbol}${salesSummary.totalRevenue.toFixed(2)}`} icon={icons.dollar} />
+                <StatCard title="Total Profit" value={`${settings.currencySymbol}${salesSummary.totalProfit.toFixed(2)}`} icon={icons.trendingUp} />
+                <StatCard title="Average Sale Value" value={`${settings.currencySymbol}${salesSummary.averageSale.toFixed(2)}`} icon={icons.sales} />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                    <h2 className="text-xl font-semibold mb-4">Sales by Category</h2>
+                    <div className="space-y-3 max-h-80 overflow-y-auto">
+                        {salesByCategory.map(cat => (
+                            <div key={cat.name}>
+                                <div className="flex justify-between text-sm mb-1">
+                                    <span>{cat.name}</span>
+                                    <span className="font-semibold">{settings.currencySymbol}{cat.revenue.toFixed(2)}</span>
+                                </div>
+                                <ProgressBar value={cat.revenue} max={salesByCategory[0].revenue} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                    <h2 className="text-xl font-semibold mb-4">Sales by Supplier</h2>
+                     <div className="space-y-3 max-h-80 overflow-y-auto">
+                        {salesBySupplier.map(sup => (
+                            <div key={sup.name}>
+                                <div className="flex justify-between text-sm mb-1">
+                                    <span>{sup.name}</span>
+                                    <span className="font-semibold">{settings.currencySymbol}{sup.revenue.toFixed(2)}</span>
+                                </div>
+                                <ProgressBar value={sup.revenue} max={salesBySupplier[0]?.revenue || 0} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            
+            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                 <h2 className="text-xl font-semibold mb-4">Item Sales Report</h2>
+                  <div className="overflow-x-auto max-h-96">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
+                            <tr>
+                                <th className="px-4 py-3">Product</th>
+                                <th className="px-4 py-3 text-right">Units Sold</th>
+                                <th className="px-4 py-3 text-right">Revenue</th>
+                                <th className="px-4 py-3 text-right">Profit</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {itemSalesReport.map(item => (
+                                <tr key={item.sku} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.name} ({item.sku})</td>
+                                    <td className="px-4 py-3 text-right">{item.units}</td>
+                                    <td className="px-4 py-3 text-right">{settings.currencySymbol}{item.revenue.toFixed(2)}</td>
+                                    <td className="px-4 py-3 text-right">{settings.currencySymbol}{item.profit.toFixed(2)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- User and Settings Management --- //
+
+const UserModal: React.FC<{isOpen: boolean; onClose: () => void; user: Omit<User, 'password'> | null}> = ({ isOpen, onClose, user }) => {
+    const { saveUser } = useStore();
+    const [formData, setFormData] = useState<Partial<User>>({});
+    
+    useEffect(() => {
+        if(isOpen) {
+            setFormData(user || { username: '', name: '', role: UserRole.CASHIER });
+        }
+    }, [isOpen, user]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const userToSave: User = {
-            id: user?.id || `user-${Date.now()}`,
-            name: formData.name!,
-            username: formData.username!,
-            password: formData.password,
-            role: formData.role!,
-        };
-        onSave(userToSave);
+        const userToSave = {
+            ...formData,
+            id: formData.id || `user-${Date.now()}`,
+        } as User;
+        await saveUser(userToSave);
+        onClose();
     };
-    
-    const isFormValid = formData.name && formData.username && (user || formData.password);
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={user ? "Edit User" : "Add User"}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Full Name</label>
+                    <label className="block text-sm font-medium">Full Name *</label>
                     <input type="text" name="name" value={formData.name || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+                    <label className="block text-sm font-medium">Username *</label>
                     <input type="text" name="username" value={formData.username || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
                 </div>
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
-                    <input type="password" name="password" value={formData.password || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} placeholder={user ? "Leave blank to keep unchanged" : ""} required={!user} />
+                    <label className="block text-sm font-medium">Password {user ? '(leave blank to keep unchanged)' : '*'}</label>
+                    <input type="password" name="password" onChange={handleChange} className={INPUT_FIELD_CLASSES} required={!user} />
                 </div>
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Role</label>
-                    <select name="role" value={formData.role} onChange={handleChange} className={INPUT_FIELD_CLASSES} required>
+                    <label className="block text-sm font-medium">Role *</label>
+                    <select name="role" value={formData.role} onChange={handleChange} className={INPUT_FIELD_CLASSES}>
                         {Object.values(UserRole).map(role => <option key={role} value={role}>{role}</option>)}
                     </select>
                 </div>
-                <div className="flex justify-end gap-2 pt-4">
+                <div className="pt-4 flex justify-end gap-2">
                     <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" disabled={!isFormValid} className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400">Save</button>
+                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">{user ? 'Save Changes' : 'Add User'}</button>
                 </div>
             </form>
         </Modal>
     );
 };
 
-const CategoryManagementPage: React.FC<{}> = () => {
-    const { categories, saveCategory, deleteCategory } = useStore();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [categoryToEdit, setCategoryToEdit] = useState<Category | null>(null);
-    const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
-    const handleAdd = () => { setCategoryToEdit(null); setIsModalOpen(true); };
-    const handleEdit = (category: Category) => { setCategoryToEdit(category); setIsModalOpen(true); };
-    const handleDelete = (category: Category) => { 
-        if(category.name === 'General') {
-            alert("The 'General' category cannot be deleted.");
-            return;
+const UserManagementPage: React.FC = () => { 
+    const { users, deleteUser } = useStore();
+    const { user: currentUser } = useAuth();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<Omit<User, 'password'> | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredUsers = useMemo(() => {
+        return users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()) || u.username.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [users, searchTerm]);
+
+    const { items: sortedUsers, requestSort, sortConfig } = useSort(filteredUsers, { key: 'name', direction: 'asc'});
+
+    const openAddModal = () => { setSelectedUser(null); setIsModalOpen(true); };
+    const openEditModal = (user: Omit<User, 'password'>) => { setSelectedUser(user); setIsModalOpen(true); };
+    const openDeleteConfirm = (user: Omit<User, 'password'>) => { setSelectedUser(user); setIsConfirmOpen(true); };
+    
+    const handleDelete = async () => {
+        if (selectedUser) {
+            await deleteUser(selectedUser.id);
+            setIsConfirmOpen(false);
+            setSelectedUser(null);
         }
-        setCategoryToDelete(category); 
     };
-    const handleConfirmDelete = async () => { if(categoryToDelete) { await deleteCategory(categoryToDelete.id); setCategoryToDelete(null); } };
-    const handleSave = async (category: Category) => { await saveCategory(category); setIsModalOpen(false); };
-
-    return (
-        <>
-            <ManagementPage title="Categories" addBtnText="Add Category" onAddItem={handleAdd}>
-                {(searchTerm) => {
-                    const filtered = categories.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
-                    const { items: sorted, requestSort, sortConfig } = useSort(filtered, { key: 'name', direction: 'asc' });
-
-                    return (
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                             <thead className="bg-gray-50 dark:bg-gray-800">
-                                <tr>
-                                    <SortableHeader label="Category Name" sortKey="name" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                             <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                                {sorted.map(c => (
-                                    <tr key={c.id}>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{c.name}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => handleEdit(c)} className="text-primary hover:text-opacity-80">{icons.edit}</button>
-                                                <button onClick={() => handleDelete(c)} disabled={c.name === 'General'} className="text-red-600 hover:text-red-800 disabled:opacity-50">{icons.trash}</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    );
-                }}
-            </ManagementPage>
-            <CategoryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} category={categoryToEdit} />
-            <ConfirmationModal isOpen={!!categoryToDelete} onClose={() => setCategoryToDelete(null)} onConfirm={handleConfirmDelete} title="Delete Category">
-                Products in "{categoryToDelete?.name}" will be moved to "General". Are you sure you want to delete this category?
-            </ConfirmationModal>
-        </>
-    );
-};
-
-const CategoryModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (cat: Category) => void; category: Category | null; }> = ({ isOpen, onClose, onSave, category }) => {
-    const [name, setName] = useState('');
-    useEffect(() => { if (isOpen) setName(category?.name || ''); }, [category, isOpen]);
-    const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSave({ id: category?.id || `cat-${Date.now()}`, name }); };
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={category ? 'Edit Category' : 'Add Category'}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category Name</label>
-                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                 <div className="flex justify-end gap-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" disabled={!name} className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400">Save</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-
-const SupplierManagementPage: React.FC<{}> = () => {
-    const { suppliers, saveSupplier, deleteSupplier } = useStore();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [supplierToEdit, setSupplierToEdit] = useState<Supplier | null>(null);
-    const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null);
-
-    const handleAdd = () => { setSupplierToEdit(null); setIsModalOpen(true); };
-    const handleEdit = (supplier: Supplier) => { setSupplierToEdit(supplier); setIsModalOpen(true); };
-    const handleDelete = (supplier: Supplier) => setSupplierToDelete(supplier);
-    const handleConfirmDelete = async () => { if(supplierToDelete) { await deleteSupplier(supplierToDelete.id); setSupplierToDelete(null); } };
-    const handleSave = async (supplier: Supplier) => { await saveSupplier(supplier); setIsModalOpen(false); };
-
-    return (
-        <>
-            <ManagementPage title="Suppliers" addBtnText="Add Supplier" onAddItem={handleAdd}>
-                {(searchTerm) => {
-                    const filtered = suppliers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
-                    const { items: sorted, requestSort, sortConfig } = useSort(filtered, { key: 'name', direction: 'asc' });
-
-                    return (
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                             <thead className="bg-gray-50 dark:bg-gray-800">
-                                <tr>
-                                    <SortableHeader label="Supplier Name" sortKey="name" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <SortableHeader label="Contact" sortKey="contactPerson" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <SortableHeader label="Email" sortKey="email" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                             <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                                {sorted.map(s => (
-                                    <tr key={s.id}>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{s.name}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{s.contactPerson || 'N/A'}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{s.email || 'N/A'}</td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => handleEdit(s)} className="text-primary hover:text-opacity-80">{icons.edit}</button>
-                                                <button onClick={() => handleDelete(s)} className="text-red-600 hover:text-red-800">{icons.trash}</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    );
-                }}
-            </ManagementPage>
-            <SupplierModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} supplier={supplierToEdit} />
-            <ConfirmationModal isOpen={!!supplierToDelete} onClose={() => setSupplierToDelete(null)} onConfirm={handleConfirmDelete} title="Delete Supplier">
-                Are you sure you want to delete supplier "{supplierToDelete?.name}"? Associated products will be unlinked.
-            </ConfirmationModal>
-        </>
-    );
-};
-
-const SupplierModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (sup: Supplier) => void; supplier: Supplier | null; }> = ({ isOpen, onClose, onSave, supplier }) => {
-    const [formData, setFormData] = useState<Partial<Supplier>>({});
-    useEffect(() => { if (isOpen) setFormData(supplier || {}); }, [supplier, isOpen]);
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(prev => ({...prev, [e.target.name]: e.target.value}));
-    const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSave({ id: supplier?.id || `sup-${Date.now()}`, ...formData, name: formData.name! }); };
     
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={supplier ? 'Edit Supplier' : 'Add Supplier'} maxWidth="max-w-xl">
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name</label>
-                    <input type="text" name="name" value={formData.name || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
-                    <input type="text" name="contactPerson" value={formData.contactPerson || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-                    <input type="email" name="email" value={formData.email || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
-                    <input type="tel" name="phone" value={formData.phone || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                </div>
-                <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Address</label>
-                    <input type="text" name="address" value={formData.address || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                </div>
-                 <div className="md:col-span-2 flex justify-end gap-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" disabled={!formData.name} className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400">Save</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const AuditLogPage: React.FC = () => {
-    const { auditLogs } = useStore();
-
-    return (
-        <ManagementPage title="Audit Logs">
-            {(searchTerm) => {
-                const filtered = auditLogs.filter(log =>
-                    log.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    log.reason.toLowerCase().includes(searchTerm.toLowerCase())
-                );
-                const { items: sorted, requestSort, sortConfig } = useSort(filtered, { key: 'timestamp', direction: 'desc' });
-
-                return (
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gray-50 dark:bg-gray-800">
+        <>
+            <ManagementPage
+                title="Users"
+                addBtnLabel="Add User"
+                onAdd={openAddModal}
+                searchTerm={searchTerm}
+                onSearch={setSearchTerm}
+            >
+                 <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                             <tr>
-                                <SortableHeader label="Date" sortKey="timestamp" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Product" sortKey="productName" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Change</th>
-                                <SortableHeader label="Reason" sortKey="reason" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="User" sortKey="userName" {...{ sortConfig, requestSort }} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
+                                <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Username" sortKey="username" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Role" sortKey="role" sortConfig={sortConfig} requestSort={requestSort} />
+                                <th className="px-4 py-3">Actions</th>
                             </tr>
                         </thead>
-                         <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                            {sorted.map(log => (
-                                <tr key={log.id}>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(log.timestamp).toLocaleString()}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{log.productName}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                        {log.oldStock} &rarr; <span className="font-bold dark:text-light">{log.newStock}</span> ({log.newStock - log.oldStock > 0 ? '+' : ''}{log.newStock - log.oldStock})
+                        <tbody>
+                            {sortedUsers.map(u => (
+                                <tr key={u.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
+                                    <td className="px-4 py-3">{u.username}</td>
+                                    <td className="px-4 py-3">{u.role}</td>
+                                    <td className="px-4 py-3 flex gap-2">
+                                        <button onClick={() => openEditModal(u)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</button>
+                                        {currentUser?.id !== u.id && (
+                                            <button onClick={() => openDeleteConfirm(u)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
+                                        )}
                                     </td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.reason}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.userName}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
-                );
-            }}
-        </ManagementPage>
+                </div>
+            </ManagementPage>
+            <UserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} user={selectedUser} />
+            <ConfirmationModal 
+                isOpen={isConfirmOpen} 
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={handleDelete}
+                title="Delete User"
+            >
+                Are you sure you want to delete the user "{selectedUser?.name}"? This action cannot be undone.
+            </ConfirmationModal>
+        </>
+    );
+};
+
+// --- Category & Supplier Management Pages (Simplified) --- //
+const CategoryManagementPage: React.FC = () => {
+    const { categories, saveCategory, deleteCategory } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filtered = categories.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const { items: sorted, requestSort, sortConfig } = useSort(filtered, {key: 'name', direction: 'asc'});
+
+    const handleSave = async (name: string) => {
+        await saveCategory({ id: selectedCategory?.id || `cat-${Date.now()}`, name });
+        setIsModalOpen(false);
+    };
+    const handleDelete = async () => {
+        if(selectedCategory) await deleteCategory(selectedCategory.id);
+        setIsConfirmOpen(false);
+    };
+
+    return (
+        <>
+            <ManagementPage title="Categories" addBtnLabel="Add Category" onAdd={() => { setSelectedCategory(null); setIsModalOpen(true); }} searchTerm={searchTerm} onSearch={setSearchTerm}>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400"><tr><SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} /><th className="px-4 py-3">Actions</th></tr></thead>
+                        <tbody>
+                            {sorted.map(c => (
+                                <tr key={c.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.name}</td>
+                                    <td className="px-4 py-3 flex gap-2">
+                                        <button onClick={() => { setSelectedCategory(c); setIsModalOpen(true);}} className="text-blue-600">{icons.edit}</button>
+                                        {c.name !== "General" && <button onClick={() => {setSelectedCategory(c); setIsConfirmOpen(true);}} className="text-red-600">{icons.trash}</button>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </ManagementPage>
+            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={selectedCategory ? "Edit Category" : "Add Category"}>
+                <form onSubmit={(e) => { e.preventDefault(); handleSave((e.target as any).name.value); }}>
+                    <label>Name *</label><input type="text" name="name" defaultValue={selectedCategory?.name} className={INPUT_FIELD_CLASSES} required />
+                    <div className="pt-4 flex justify-end gap-2"><button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-md bg-gray-200">Cancel</button><button type="submit" className="px-4 py-2 rounded-md bg-primary text-white">Save</button></div>
+                </form>
+            </Modal>
+            <ConfirmationModal isOpen={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} onConfirm={handleDelete} title="Delete Category">Are you sure? Products in this category will be moved to "General".</ConfirmationModal>
+        </>
+    );
+};
+
+const SupplierManagementPage: React.FC = () => {
+    const { suppliers, saveSupplier, deleteSupplier } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [selected, setSelected] = useState<Supplier | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filtered = suppliers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const { items: sorted, requestSort, sortConfig } = useSort(filtered, {key: 'name', direction: 'asc'});
+
+    const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const formData = new FormData(e.currentTarget);
+        const supplierData = Object.fromEntries(formData.entries()) as Omit<Supplier, 'id'>;
+        await saveSupplier({ id: selected?.id || `sup-${Date.now()}`, ...supplierData });
+        setIsModalOpen(false);
+    };
+    const handleDelete = async () => { if(selected) await deleteSupplier(selected.id); setIsConfirmOpen(false); };
+
+    return (
+        <>
+            <ManagementPage title="Suppliers" addBtnLabel="Add Supplier" onAdd={() => { setSelected(null); setIsModalOpen(true); }} searchTerm={searchTerm} onSearch={setSearchTerm}>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400"><tr><SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} /><SortableHeader label="Contact Person" sortKey="contactPerson" sortConfig={sortConfig} requestSort={requestSort} /><SortableHeader label="Email" sortKey="email" sortConfig={sortConfig} requestSort={requestSort} /><th className="px-4 py-3">Actions</th></tr></thead>
+                        <tbody>
+                            {sorted.map(s => (
+                                <tr key={s.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.name}</td>
+                                    <td className="px-4 py-3">{s.contactPerson}</td>
+                                    <td className="px-4 py-3">{s.email}</td>
+                                    <td className="px-4 py-3 flex gap-2">
+                                        <button onClick={() => { setSelected(s); setIsModalOpen(true);}} className="text-blue-600">{icons.edit}</button>
+                                        <button onClick={() => {setSelected(s); setIsConfirmOpen(true);}} className="text-red-600">{icons.trash}</button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </ManagementPage>
+            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={selected ? "Edit Supplier" : "Add Supplier"}>
+                <form onSubmit={handleSave} className="space-y-4">
+                    <input type="text" name="name" defaultValue={selected?.name} placeholder="Name" className={INPUT_FIELD_CLASSES} required />
+                    <input type="text" name="contactPerson" defaultValue={selected?.contactPerson} placeholder="Contact Person" className={INPUT_FIELD_CLASSES} />
+                    <input type="email" name="email" defaultValue={selected?.email} placeholder="Email" className={INPUT_FIELD_CLASSES} />
+                    <input type="tel" name="phone" defaultValue={selected?.phone} placeholder="Phone" className={INPUT_FIELD_CLASSES} />
+                    <textarea name="address" defaultValue={selected?.address} placeholder="Address" className={INPUT_FIELD_CLASSES}></textarea>
+                    <div className="pt-4 flex justify-end gap-2"><button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-md bg-gray-200">Cancel</button><button type="submit" className="px-4 py-2 rounded-md bg-primary text-white">Save</button></div>
+                </form>
+            </Modal>
+            <ConfirmationModal isOpen={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} onConfirm={handleDelete} title="Delete Supplier">Are you sure? Products from this supplier will be unlinked.</ConfirmationModal>
+        </>
     );
 };
 
@@ -2247,7 +1901,7 @@ const AuditLogPage: React.FC = () => {
 const SettingsPage: React.FC = () => {
     const { settings, saveSettings } = useStore();
     const [formData, setFormData] = useState<AppSettings>(settings);
-    const [isSaved, setIsSaved] = useState(false);
+    const restoreInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         setFormData(settings);
@@ -2257,388 +1911,155 @@ const SettingsPage: React.FC = () => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, files } = e.target;
-        if (files && files[0]) {
+    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'appLogo' | 'appIcon') => {
+        const file = e.target.files?.[0];
+        if (file) {
             const reader = new FileReader();
-            reader.onload = (event) => {
-                if (event.target?.result) {
-                    setFormData(prev => ({ ...prev, [name]: event.target!.result as string }));
-                }
+            reader.onloadend = () => {
+                setFormData(prev => ({...prev, [field]: reader.result as string}));
             };
-            reader.readAsDataURL(files[0]);
+            reader.readAsDataURL(file);
         }
     };
 
-    const removeImage = (name: 'appLogo' | 'appIcon') => {
-        setFormData(prev => {
-            const newSettings = { ...prev };
-            delete newSettings[name];
-            return newSettings;
-        });
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         await saveSettings(formData);
-        setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 2000);
+        alert("Settings saved!");
     };
-
-    return (
-        <div>
-            <h1 className="text-3xl font-bold text-dark dark:text-light mb-6">Settings</h1>
-            <div className="max-w-2xl">
-                <form onSubmit={handleSubmit}>
-                    <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md space-y-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Application Name</label>
-                            <input type="text" name="appName" value={formData.appName} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Currency Symbol</label>
-                            <input type="text" name="currencySymbol" value={formData.currencySymbol} onChange={handleChange} className={INPUT_FIELD_CLASSES} required maxLength={2} />
-                        </div>
-
-                        <div>
-                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Application Logo</label>
-                           <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Recommended: transparent PNG, max height 48px.</p>
-                           <div className="mt-1 flex items-center gap-4">
-                               {formData.appLogo ? <img src={formData.appLogo} alt="Logo Preview" className="h-12 w-auto bg-gray-200 dark:bg-gray-700 p-1 rounded-md" /> : <div className="h-12 w-24 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-500">No Logo</div>}
-                               <input type="file" name="appLogo" onChange={handleFileChange} accept="image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20" />
-                               {formData.appLogo && <button type="button" onClick={() => removeImage('appLogo')} className="text-red-500 hover:text-red-700">{icons.trash}</button>}
-                           </div>
-                        </div>
-
-                        <div>
-                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Application Icon (Favicon)</label>
-                           <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Recommended: square PNG or ICO, e.g., 32x32px.</p>
-                           <div className="mt-1 flex items-center gap-4">
-                               {formData.appIcon ? <img src={formData.appIcon} alt="Icon Preview" className="h-8 w-8 rounded-md" /> : <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center text-xs text-gray-500">?</div>}
-                               <input type="file" name="appIcon" onChange={handleFileChange} accept="image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20" />
-                               {formData.appIcon && <button type="button" onClick={() => removeImage('appIcon')} className="text-red-500 hover:text-red-700">{icons.trash}</button>}
-                           </div>
-                        </div>
-
-                        <div className="flex justify-end items-center gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                             {isSaved && <p className="text-green-600 text-sm">Settings saved!</p>}
-                            <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">Save Settings</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-// FIX: Moved ProgressBar component outside of ReportsPage to fix a TypeScript error
-// related to component props inference when defined inside another component.
-// FIX: Explicitly defined ProgressBarProps and used React.FC to correctly type the component.
-// This resolves an error where React's 'key' prop was being incorrectly passed, causing a type mismatch.
-type ProgressBarProps = {
-    name: string;
-    value: number;
-    total: number;
-    currencySymbol: string;
-};
-
-const ProgressBar: React.FC<ProgressBarProps> = ({ name, value, total, currencySymbol }) => {
-    const percentage = total > 0 ? (value / total) * 100 : 0;
-    return (
-        <div>
-            <div className="flex justify-between text-sm mb-1">
-                <span className="font-medium text-gray-700 dark:text-gray-300">{name}</span>
-                <span className="text-gray-500 dark:text-gray-400">{currencySymbol}{value.toFixed(2)}</span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                <div className="bg-primary h-2.5 rounded-full" style={{ width: `${percentage}%` }}></div>
-            </div>
-        </div>
-    )
-};
-
-const ReportsPage: React.FC = () => {
-    const { sales, products, settings } = useStore();
     
-    // Sales Summary Calculations
-    const salesSummary = useMemo(() => {
-        const totalRevenue = sales.reduce((acc, sale) => acc + sale.total, 0);
-        const totalProfit = sales.reduce((acc, sale) => acc + (sale.totalProfit || 0), 0);
-        const averageSale = sales.length > 0 ? totalRevenue / sales.length : 0;
-        return { totalRevenue, totalProfit, averageSale };
-    }, [sales]);
-
-    // Sales by Category & Supplier
-    const performanceData = useMemo(() => {
-        const categorySales: { [key: string]: number } = {};
-        const supplierSales: { [key: string]: number } = {};
-
-        for (const sale of sales) {
-            for (const item of sale.items) {
-                const product = products.find(p => p.id === item.id);
-                if (product) {
-                    const saleValue = item.price * item.quantity;
-                    categorySales[product.category] = (categorySales[product.category] || 0) + saleValue;
-                    if (product.supplierName) {
-                         supplierSales[product.supplierName] = (supplierSales[product.supplierName] || 0) + saleValue;
-                    }
-                }
-            }
-        }
-        
-        const formatAndSort = (data: { [key: string]: number }) => Object.entries(data)
-            .map(([name, total]) => ({ name, total }))
-            .sort((a, b) => b.total - a.total);
-
-        return {
-            byCategory: formatAndSort(categorySales),
-            bySupplier: formatAndSort(supplierSales)
-        };
-    }, [sales, products]);
-
-    // Item Sales Report Data
-    const itemSalesReportData = useMemo(() => {
-        const itemData: { [key: string]: { name: string, sku: string, unitsSold: number, revenue: number, profit: number } } = {};
-        
-        for (const p of products) {
-            itemData[p.id] = { name: p.name, sku: p.sku, unitsSold: 0, revenue: 0, profit: 0 };
-        }
-
-        for (const sale of sales) {
-            for (const item of sale.items) {
-                if(itemData[item.id]) {
-                    itemData[item.id].unitsSold += item.quantity;
-                    const revenue = item.price * item.quantity;
-                    const cost = (item.cost || 0) * item.quantity;
-                    itemData[item.id].revenue += revenue;
-                    itemData[item.id].profit += revenue - cost;
-                }
-            }
-        }
-
-        return Object.values(itemData);
-    }, [sales, products]);
-
-    const { items: sortedItemSales, requestSort: requestSortItemSales, sortConfig: sortConfigItemSales } = useSort(itemSalesReportData, { key: 'revenue', direction: 'desc' });
-    
-    // Current Stock Report Data
-    const currentStockData = useMemo(() => {
-        return products.map(p => ({
-            ...p,
-            stockValueCost: (p.cost || 0) * p.stock,
-            stockValuePrice: p.price * p.stock,
-        }));
-    }, [products]);
-     const { items: sortedStock, requestSort: requestSortStock, sortConfig: sortConfigStock } = useSort(currentStockData, { key: 'name', direction: 'asc' });
-
-
-    const totalStockValueCost = useMemo(() => currentStockData.reduce((acc, p) => acc + p.stockValueCost, 0), [currentStockData]);
-    const totalStockValuePrice = useMemo(() => currentStockData.reduce((acc, p) => acc + p.stockValuePrice, 0), [currentStockData]);
-
-    const exportToCSV = (data: any[], filename: string) => {
-        if (data.length === 0) return;
-        const headers = Object.keys(data[0]);
-        let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n";
-        
-        data.forEach(row => {
-            const values = headers.map(header => {
-                let value = row[header];
-                if (typeof value === 'string' && value.includes(',')) {
-                    return `"${value}"`;
-                }
-                return value;
-            });
-            csvContent += values.join(",") + "\n";
+    const handleBackup = () => {
+        const data: { [key: string]: any } = {};
+        const keys = ['pharmacy_users', 'pharmacy_products', 'pharmacy_inventory', 'pharmacy_sales', 'pharmacy_audit_logs', 'pharmacy_settings', 'pharmacy_categories', 'pharmacy_suppliers'];
+        keys.forEach(key => {
+            data[key] = JSON.parse(localStorage.getItem(key) || 'null');
         });
 
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `${filename}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const jsonString = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pharmacy-backup-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
-    
+
+    const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!window.confirm("Are you sure you want to restore? This will overwrite all current data and cannot be undone.")) {
+            if (restoreInputRef.current) restoreInputRef.current.value = "";
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target?.result as string);
+                Object.keys(data).forEach(key => {
+                    localStorage.setItem(key, JSON.stringify(data[key]));
+                });
+                alert("Restore successful! The application will now reload.");
+                window.location.reload();
+            } catch (error) {
+                alert("Failed to read or parse the backup file. Please ensure it's a valid backup.");
+                console.error("Restore error:", error);
+            } finally {
+                 if (restoreInputRef.current) restoreInputRef.current.value = "";
+            }
+        };
+        reader.readAsText(file);
+    };
+
     return (
-        <div>
-             <h1 className="text-3xl font-bold text-dark dark:text-light mb-6">Reports</h1>
-             
-             {/* Sales Summary */}
-             <div className="mb-8">
-                <h2 className="text-xl font-semibold dark:text-light mb-4">Sales Summary</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <StatCard title="Total Revenue" value={`${settings.currencySymbol}${salesSummary.totalRevenue.toFixed(2)}`} icon={icons.dollar} />
-                    <StatCard title="Total Profit" value={`${settings.currencySymbol}${salesSummary.totalProfit.toFixed(2)}`} icon={icons.trendingUp} />
-                    <StatCard title="Average Sale Value" value={`${settings.currencySymbol}${salesSummary.averageSale.toFixed(2)}`} icon={icons.pos} />
-                </div>
-             </div>
-
-            {/* Performance Breakdowns */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold dark:text-light mb-4">Sales by Category</h2>
-                    <div className="space-y-4">
-                        {performanceData.byCategory.map(cat => (
-                            <ProgressBar key={cat.name} name={cat.name} value={cat.total} total={salesSummary.totalRevenue} currencySymbol={settings.currencySymbol} />
-                        ))}
+        <div className="space-y-8 max-w-4xl mx-auto">
+            <h1 className="text-3xl font-bold text-dark dark:text-light">Settings</h1>
+            
+            <form onSubmit={handleSave} className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md space-y-6">
+                 <h2 className="text-xl font-semibold border-b dark:border-gray-700 pb-3">App Settings</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium">Application Name</label>
+                        <input type="text" name="appName" value={formData.appName} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Currency Symbol</label>
+                        <input type="text" name="currencySymbol" value={formData.currencySymbol} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
                     </div>
                 </div>
-                 <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold dark:text-light mb-4">Sales by Supplier</h2>
-                    <div className="space-y-4">
-                        {performanceData.bySupplier.length > 0 ? performanceData.bySupplier.map(sup => (
-                            <ProgressBar key={sup.name} name={sup.name} value={sup.total} total={salesSummary.totalRevenue} currencySymbol={settings.currencySymbol} />
-                        )) : <p className="text-gray-500 dark:text-gray-400">No supplier sales data.</p>}
+                 <div>
+                    <label className="block text-sm font-medium">Application Logo</label>
+                    <input type="file" accept="image/*" onChange={e => handleImageChange(e, 'appLogo')} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"/>
+                    {formData.appLogo && <img src={formData.appLogo} alt="Logo Preview" className="h-12 mt-2 bg-gray-200 p-1 rounded"/>}
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium">Application Icon (Favicon)</label>
+                    <input type="file" accept="image/x-icon,image/png,image/svg+xml" onChange={e => handleImageChange(e, 'appIcon')} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"/>
+                    {formData.appIcon && <img src={formData.appIcon} alt="Icon Preview" className="h-8 w-8 mt-2 bg-gray-200 p-1 rounded"/>}
+                </div>
+                <div className="flex justify-end pt-4">
+                    <button type="submit" className="px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">Save Settings</button>
+                </div>
+            </form>
+
+            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md space-y-4">
+                 <h2 className="text-xl font-semibold border-b dark:border-gray-700 pb-3">Backup & Restore</h2>
+                 <p className="text-sm text-gray-600 dark:text-gray-400">Backup all your application data to a local file. You can use this file to restore your data on this or another device.</p>
+                 <div className="flex flex-col sm:flex-row gap-4 items-start">
+                    <button onClick={handleBackup} className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                        {icons.download} Backup Now
+                    </button>
+                    <div>
+                        <label htmlFor="restore-file" className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700">
+                            {icons.upload} Restore from File
+                        </label>
+                         <input ref={restoreInputRef} id="restore-file" type="file" accept=".json" onChange={handleRestore} className="hidden" />
                     </div>
-                </div>
-            </div>
-
-            {/* Item Sales Report */}
-            <div className="bg-white dark:bg-dark-card p-4 rounded-xl shadow-md mb-8">
-                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold dark:text-light">Item Sales Report</h2>
-                    <button onClick={() => exportToCSV(sortedItemSales, 'item_sales_report.csv')} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
-                        {icons.download} Export CSV
-                    </button>
-                </div>
-                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                         <thead className="bg-gray-50 dark:bg-gray-800">
-                            <tr>
-                                <SortableHeader label="Product" sortKey="name" sortConfig={sortConfigItemSales} requestSort={requestSortItemSales} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="SKU" sortKey="sku" sortConfig={sortConfigItemSales} requestSort={requestSortItemSales} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Units Sold" sortKey="unitsSold" sortConfig={sortConfigItemSales} requestSort={requestSortItemSales} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Revenue" sortKey="revenue" sortConfig={sortConfigItemSales} requestSort={requestSortItemSales} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Profit" sortKey="profit" sortConfig={sortConfigItemSales} requestSort={requestSortItemSales} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                            {sortedItemSales.map(item => (
-                                <tr key={item.sku}>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{item.name}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{item.sku}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{item.unitsSold}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{settings.currencySymbol}{item.revenue.toFixed(2)}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-green-600 dark:text-green-400">{settings.currencySymbol}{item.profit.toFixed(2)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* Current Stock Report */}
-            <div className="bg-white dark:bg-dark-card p-4 rounded-xl shadow-md">
-                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold dark:text-light">Current Stock Report</h2>
-                    <button onClick={() => exportToCSV(sortedStock.map(p => ({
-                        name: p.name, sku: p.sku, category: p.category, supplier: p.supplierName || 'N/A',
-                        stock: p.stock, stock_value_cost: p.stockValueCost.toFixed(2), stock_value_price: p.stockValuePrice.toFixed(2)
-                    })), 'current_stock_report.csv')} className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
-                        {icons.download} Export CSV
-                    </button>
-                </div>
-                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                         <thead className="bg-gray-50 dark:bg-gray-800">
-                            <tr>
-                                <SortableHeader label="Product" sortKey="name" sortConfig={sortConfigStock} requestSort={requestSortStock} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="SKU" sortKey="sku" sortConfig={sortConfigStock} requestSort={requestSortStock} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Stock" sortKey="stock" sortConfig={sortConfigStock} requestSort={requestSortStock} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Stock Value (Cost)" sortKey="stockValueCost" sortConfig={sortConfigStock} requestSort={requestSortStock} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                                <SortableHeader label="Stock Value (Price)" sortKey="stockValuePrice" sortConfig={sortConfigStock} requestSort={requestSortStock} className="text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" />
-                            </tr>
-                        </thead>
-                         <tbody className="bg-white dark:bg-dark-card divide-y divide-gray-200 dark:divide-gray-700">
-                            {sortedStock.map(item => (
-                                <tr key={item.sku}>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{item.name}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{item.sku}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-white">{item.stock}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{settings.currencySymbol}{item.stockValueCost.toFixed(2)}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{settings.currencySymbol}{item.stockValuePrice.toFixed(2)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                         <tfoot className="bg-gray-50 dark:bg-gray-800">
-                            <tr>
-                                <td colSpan={3} className="px-4 py-3 text-right text-sm font-bold text-gray-900 dark:text-white">Totals:</td>
-                                <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white">{settings.currencySymbol}{totalStockValueCost.toFixed(2)}</td>
-                                <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white">{settings.currencySymbol}{totalStockValuePrice.toFixed(2)}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
+                 </div>
+                 <p className="text-xs text-amber-600 dark:text-amber-400">Warning: Restoring from a file will overwrite all existing data. This action cannot be undone.</p>
             </div>
         </div>
     );
 };
 
-
-// --- MAIN APP LAYOUT --- //
-type Page = 'dashboard' | 'pos' | 'inventory' | 'products' | 'suppliers' | 'sales' | 'reports' | 'users' | 'categories' | 'audit' | 'settings';
-
-const App: React.FC = () => {
+// --- App Layout & Router --- //
+const AppLayout: React.FC<{ children: ReactNode }> = ({ children }) => {
     const { user, logout } = useAuth();
-    const { products, settings } = useStore();
+    const { settings, productsWithStock } = useStore();
     const { theme, toggleTheme } = useTheme();
-    const [activePage, setActivePage] = useState<Page>('dashboard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-    const profileRef = useRef(null);
-    const notificationsRef = useRef(null);
-
-    const lowStockProducts = useMemo(() => products.filter(p => p.stock <= p.lowStockThreshold), [products]);
-
-    const navLinks: { id: Page; label: string; icon: React.ReactNode; roles: UserRole[] }[] = [
-        { id: 'dashboard', label: 'Dashboard', icon: icons.dashboard, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'pos', label: 'POS', icon: icons.pos, roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
-        { id: 'inventory', label: 'Inventory', icon: icons.inventory, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'products', label: 'Products', icon: icons.products, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'categories', label: 'Categories', icon: icons.category, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'suppliers', label: 'Suppliers', icon: icons.suppliers, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'sales', label: 'Sales History', icon: icons.sales, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'reports', label: 'Reports', icon: icons.reports, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { id: 'users', label: 'User Management', icon: icons.users, roles: [UserRole.SUPER_ADMIN] },
-        { id: 'audit', label: 'Audit Logs', icon: icons.clipboard, roles: [UserRole.SUPER_ADMIN] },
-        { id: 'settings', label: 'Settings', icon: icons.settings, roles: [UserRole.SUPER_ADMIN] },
-    ];
-
-    const accessibleLinks = navLinks.filter(link => user && link.roles.includes(user.role));
+    const profileRef = useRef<HTMLDivElement>(null);
+    const notificationRef = useRef<HTMLDivElement>(null);
     
-    // Set default page based on role
+    const lowStockProducts = useMemo(() => productsWithStock.filter(p => p.totalStock <= p.lowStockThreshold), [productsWithStock]);
+    
+    // Update dynamic document title and favicon
     useEffect(() => {
-        if (user) {
-            if (user.role === UserRole.CASHIER) setActivePage('pos');
-            else setActivePage('dashboard');
+        document.title = settings.appName || 'Pharmacy POS';
+        const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+        if (favicon) {
+            favicon.href = settings.appIcon || 'about:blank';
+        } else if (settings.appIcon) {
+            const newFavicon = document.createElement('link');
+            newFavicon.rel = 'icon';
+            newFavicon.href = settings.appIcon;
+            document.head.appendChild(newFavicon);
         }
-    }, [user]);
+    }, [settings]);
 
-    const pageComponents: Record<Page, React.ReactNode> = {
-        dashboard: <DashboardPage />,
-        pos: <POSPage />,
-        inventory: <InventoryPage />,
-        products: <ProductManagementPage />,
-        suppliers: <SupplierManagementPage />,
-        sales: <SalesHistoryPage />,
-        reports: <ReportsPage />,
-        users: <UserManagementPage />,
-        categories: <CategoryManagementPage />,
-        audit: <AuditLogPage />,
-        settings: <SettingsPage />
-    };
-    
-    const pageTitle = accessibleLinks.find(l => l.id === activePage)?.label || 'Dashboard';
-
-    // Click outside handler for dropdowns
+    // Close dropdowns when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (profileRef.current && !(profileRef.current as any).contains(event.target)) {
+            if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
                 setIsProfileOpen(false);
             }
-             if (notificationsRef.current && !(notificationsRef.current as any).contains(event.target)) {
+            if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
                 setIsNotificationsOpen(false);
             }
         };
@@ -2646,88 +2067,95 @@ const App: React.FC = () => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    const navLinks = [
+        { name: 'Dashboard', icon: icons.dashboard, href: '#/', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'POS', icon: icons.pos, href: '#/pos', roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
+        { name: 'Products', icon: icons.products, href: '#/products', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Inventory', icon: icons.inventory, href: '#/inventory', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Sales', icon: icons.sales, href: '#/sales', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Reports', icon: icons.reports, href: '#/reports', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Suppliers', icon: icons.suppliers, href: '#/suppliers', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Categories', icon: icons.category, href: '#/categories', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Users', icon: icons.users, href: '#/users', roles: [UserRole.SUPER_ADMIN] },
+        { name: 'Settings', icon: icons.settings, href: '#/settings', roles: [UserRole.SUPER_ADMIN] },
+    ].filter(link => user && link.roles.includes(user.role));
 
-    if (!user) return <LoginPage />;
-
+    const currentPath = window.location.hash || '#/';
+    
     return (
-        <div className="flex h-screen bg-light dark:bg-dark-bg text-dark dark:text-gray-200">
+        <div className="flex h-screen bg-light dark:bg-dark-bg text-dark dark:text-light">
             {/* Sidebar */}
-            <aside className={`bg-white dark:bg-dark-card shadow-lg z-30 w-64 absolute inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out flex flex-col`}>
-                <div className="h-16 flex items-center justify-center px-4 shrink-0">
-                    {settings.appLogo ? (
-                        <img src={settings.appLogo} alt={settings.appName} className="max-h-12 w-auto" />
-                    ) : (
-                        <span className="text-2xl font-bold text-primary">{settings.appName}</span>
-                    )}
+            <aside className={`bg-white dark:bg-dark-card w-64 absolute inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 transition-transform duration-300 ease-in-out z-40`}>
+                <div className="flex items-center justify-center p-4 h-20 border-b dark:border-gray-700">
+                   {settings.appLogo ? (
+                       <img src={settings.appLogo} alt="Logo" className="h-10 object-contain" />
+                   ) : (
+                       <h1 className="text-2xl font-bold text-primary">{settings.appName}</h1>
+                   )}
                 </div>
-                <nav className="flex-grow px-4 overflow-y-auto">
-                    {accessibleLinks.map(link => (
-                        <button key={link.id} onClick={() => { setActivePage(link.id); setIsSidebarOpen(false); }} className={`flex items-center gap-3 w-full px-4 py-3 my-1 rounded-lg text-left transition-colors ${activePage === link.id ? 'bg-primary/10 text-primary font-semibold' : 'hover:bg-gray-100 dark:hover:bg-gray-800/50'}`}>
-                            {link.icon}
-                            <span>{link.label}</span>
-                        </button>
-                    ))}
+                <nav className="p-4">
+                    <ul>
+                        {navLinks.map(link => (
+                            <li key={link.name}>
+                                <a href={link.href} onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 px-4 py-3 rounded-lg my-1 transition-colors ${currentPath === link.href ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+                                    {link.icon}
+                                    <span>{link.name}</span>
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
                 </nav>
-                 <div className="p-4 shrink-0">
-                    <button onClick={logout} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-300">
-                        {icons.logout}
-                        <span>Logout</span>
-                    </button>
-                </div>
             </aside>
-            
-            <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Header */}
-                 <header className="h-16 bg-white dark:bg-dark-card shadow-md flex items-center justify-between px-6 shrink-0 z-10">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="md:hidden text-gray-500 dark:text-gray-400">{icons.hamburger}</button>
-                        <h1 className="text-xl font-semibold text-dark dark:text-light hidden sm:block">{pageTitle}</h1>
-                    </div>
+
+            {/* Main Content */}
+            <div className="flex-1 flex flex-col">
+                <header className="flex items-center justify-between h-20 px-6 bg-white dark:bg-dark-card shadow-md z-30">
+                    <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="lg:hidden text-gray-500 dark:text-gray-400">
+                        {icons.hamburger}
+                    </button>
+                    <div className="flex-grow"></div>
                     <div className="flex items-center gap-4">
                         <button onClick={toggleTheme} className="text-gray-500 dark:text-gray-400 hover:text-primary dark:hover:text-accent">
                             {theme === 'light' ? icons.moon : icons.sun}
                         </button>
-                        
-                        {/* Notifications */}
-                         <div className="relative" ref={notificationsRef}>
+
+                         <div ref={notificationRef} className="relative">
                             <button onClick={() => setIsNotificationsOpen(prev => !prev)} className="text-gray-500 dark:text-gray-400 hover:text-primary dark:hover:text-accent relative">
                                 {icons.bell}
-                                {lowStockProducts.length > 0 && <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-card"></span>}
+                                {lowStockProducts.length > 0 && <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">{lowStockProducts.length}</span>}
                             </button>
                             {isNotificationsOpen && (
-                                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-dark-card rounded-lg shadow-xl border dark:border-gray-700 overflow-hidden">
-                                    <div className="p-3 font-semibold text-sm border-b dark:border-gray-700">Low Stock Alerts</div>
-                                    <div className="max-h-80 overflow-y-auto">
-                                        {lowStockProducts.length > 0 ? (
-                                            lowStockProducts.map(p => (
-                                                <div key={p.id} onClick={() => { setActivePage('products'); setIsNotificationsOpen(false); }} className="px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800/50 cursor-pointer text-sm">
-                                                    <p className="font-semibold dark:text-light">{p.name}</p>
-                                                    <p className="text-red-500">{p.stock} units left</p>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <p className="p-4 text-sm text-gray-500">No new notifications.</p>
-                                        )}
+                                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-dark-card border dark:border-gray-700 rounded-lg shadow-lg z-20">
+                                    <div className="p-3 border-b dark:border-gray-700">
+                                        <h4 className="font-semibold text-sm">Low Stock Alerts</h4>
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto">
+                                    {lowStockProducts.length > 0 ? (
+                                        lowStockProducts.map(p => (
+                                            <a key={p.id} href="#/products" onClick={() => setIsNotificationsOpen(false)} className="flex justify-between p-3 text-sm hover:bg-gray-100 dark:hover:bg-gray-800">
+                                                <span>{p.name}</span>
+                                                <span className="font-bold text-red-500">{p.totalStock} left</span>
+                                            </a>
+                                        ))
+                                    ) : (
+                                        <p className="p-3 text-sm text-gray-500">No low stock items.</p>
+                                    )}
                                     </div>
                                 </div>
                             )}
                         </div>
                         
-                        {/* Profile Dropdown */}
-                        <div className="relative" ref={profileRef}>
+                        <div ref={profileRef} className="relative">
                             <button onClick={() => setIsProfileOpen(prev => !prev)} className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold">
-                                    {user.name.charAt(0)}
-                                </div>
-                                <span className="hidden md:inline text-sm font-medium">{user.name}</span>
+                                <span className="w-10 h-10 bg-primary/20 text-primary rounded-full flex items-center justify-center font-bold">{user?.name[0]}</span>
                             </button>
                             {isProfileOpen && (
-                                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-card rounded-lg shadow-xl border dark:border-gray-700 overflow-hidden">
+                                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-card border dark:border-gray-700 rounded-lg shadow-lg z-20">
                                     <div className="p-3 border-b dark:border-gray-700">
-                                        <p className="font-semibold text-sm truncate">{user.name}</p>
-                                        <p className="text-xs text-gray-500">{user.role}</p>
+                                        <p className="font-semibold truncate">{user?.name}</p>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">{user?.role}</p>
                                     </div>
-                                    <button onClick={logout} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800/50 flex items-center gap-2">
+                                    <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800">
                                         {icons.logout} Logout
                                     </button>
                                 </div>
@@ -2735,52 +2163,80 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 </header>
-
-                {/* Main Content */}
-                <main className="flex-1 overflow-y-auto p-6">
-                    {pageComponents[activePage]}
+                <main className="flex-1 p-6 overflow-y-auto">
+                    {children}
                 </main>
             </div>
         </div>
     );
 };
 
-// --- ROOT COMPONENT --- //
-const Root: React.FC = () => {
+const App: React.FC = () => {
+    const { user } = useAuth();
+    const [page, setPage] = useState(window.location.hash || '#/');
+
+    useEffect(() => {
+        const handleHashChange = () => {
+            setPage(window.location.hash || '#/');
+        };
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, []);
+    
+    // Simple router
+    const renderPage = () => {
+        const path = page.split('?')[0]; // Ignore query params for routing
+        
+        // Non-protected routes
+        if (!user) return <LoginPage />;
+
+        switch (path) {
+            case '#/':
+                if (user.role === UserRole.CASHIER) return <POSPage />;
+                return <DashboardPage />;
+            case '#/pos':
+                return <POSPage />;
+            case '#/products':
+                return <ProductManagementPage />;
+            case '#/inventory':
+                return <InventoryManagementPage />;
+            case '#/sales':
+                return <SalesHistoryPage />;
+            case '#/reports': 
+                return <ReportsPage />;
+            case '#/suppliers': 
+                return <SupplierManagementPage />;
+            case '#/categories': 
+                return <CategoryManagementPage />;
+            case '#/users': 
+                return <UserManagementPage />;
+            case '#/settings': 
+                return <SettingsPage />;
+            default:
+                return <div className="text-center"><h1 className="text-2xl font-bold">404 - Page Not Found</h1></div>;
+        }
+    };
+    
+    if(!user) return <LoginPage />;
+
+    return (
+        <AppLayout>
+            {renderPage()}
+        </AppLayout>
+    );
+};
+
+// Root component with all providers
+const Root = () => {
     return (
         <ThemeProvider>
             <AuthProvider>
                 <StoreProvider>
-                    <ThemedApp />
+                    <App />
                 </StoreProvider>
             </AuthProvider>
         </ThemeProvider>
     );
 };
-
-const ThemedApp: React.FC = () => {
-    const { user } = useAuth();
-    const { settings } = useStore();
-
-    useEffect(() => {
-        document.title = `${settings.appName} | POS & Inventory`;
-        const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]');
-        if (settings.appIcon) {
-            if (favicon) {
-                favicon.href = settings.appIcon;
-            } else {
-                const newFavicon = document.createElement('link');
-                newFavicon.rel = 'icon';
-                newFavicon.href = settings.appIcon;
-                document.head.appendChild(newFavicon);
-            }
-        }
-    }, [settings.appName, settings.appIcon]);
-    
-    if (!user) {
-        return <LoginPage />;
-    }
-    return <App />;
-}
 
 export default Root;

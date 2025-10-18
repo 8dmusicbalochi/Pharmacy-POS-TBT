@@ -1,7 +1,8 @@
-import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem } from '../types';
+import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem } from '../types';
 
 const USERS_KEY = 'pharmacy_users';
 const PRODUCTS_KEY = 'pharmacy_products';
+const INVENTORY_KEY = 'pharmacy_inventory';
 const SALES_KEY = 'pharmacy_sales';
 const AUDIT_LOGS_KEY = 'pharmacy_audit_logs';
 const SETTINGS_KEY = 'pharmacy_settings';
@@ -32,14 +33,26 @@ const getFutureDate = (days: number) => {
 }
 
 const getInitialProducts = (): Product[] => [
-  { id: 'p1', sku: 'MED-001', name: 'Paracetamol 500mg', price: 5.99, cost: 2.50, stock: 150, category: 'Medicine', lowStockThreshold: 20, expiryDate: getFutureDate(365), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
-  { id: 'p2', sku: 'MED-002', name: 'Ibuprofen 200mg', price: 8.50, cost: 4.00, stock: 80, category: 'Medicine', lowStockThreshold: 20, expiryDate: getFutureDate(25), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
-  { id: 'p3', sku: 'PC-001', name: 'Organic Shampoo', price: 3.25, cost: 1.10, stock: 40, category: 'Personal Care', lowStockThreshold: 10, expiryDate: getFutureDate(-10), supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.' },
-  { id: 'p4', sku: 'GEN-001', name: 'Hand Sanitizer', price: 4.00, cost: 1.50, stock: 120, category: 'General', lowStockThreshold: 30, expiryDate: getFutureDate(180), supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.' },
-  { id: 'p5', sku: 'MED-003', name: 'Aspirin 100mg', price: 15, cost: 7.20, stock: 100, category: 'Medicine', lowStockThreshold: 20, expiryDate: getFutureDate(700), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
-  { id: 'p6', sku: 'GEN-002', name: 'Digital Thermometer', price: 15.00, cost: 5.00, stock: 50, category: 'General', lowStockThreshold: 10 },
-  { id: 'p7', sku: 'PC-002', name: 'Protein Bar', price: 2.50, cost: 0.80, stock: 200, category: 'Personal Care', lowStockThreshold: 50, expiryDate: getFutureDate(90), supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.' },
+  { id: 'p1', sku: 'MED-001', name: 'Paracetamol 500mg', price: 5.99, cost: 2.50, category: 'Medicine', lowStockThreshold: 20, supplierId: 'sup-1', supplierName: 'PharmaCore Inc.', manufacturer: 'Global Pharma', description: '500mg tablets for pain relief.' },
+  { id: 'p2', sku: 'MED-002', name: 'Ibuprofen 200mg', price: 8.50, cost: 4.00, category: 'Medicine', lowStockThreshold: 20, supplierId: 'sup-1', supplierName: 'PharmaCore Inc.', manufacturer: 'Global Pharma', description: '200mg anti-inflammatory tablets.' },
+  { id: 'p3', sku: 'PC-001', name: 'Organic Shampoo', price: 3.25, cost: 1.10, category: 'Personal Care', lowStockThreshold: 10, supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.', manufacturer: 'NatureWell' },
+  { id: 'p4', sku: 'GEN-001', name: 'Hand Sanitizer', price: 4.00, cost: 1.50, category: 'General', lowStockThreshold: 30, supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.', manufacturer: 'CleanHands Co.' },
+  { id: 'p5', sku: 'MED-003', name: 'Aspirin 100mg', price: 15, cost: 7.20, category: 'Medicine', lowStockThreshold: 20, supplierId: 'sup-1', supplierName: 'PharmaCore Inc.', manufacturer: 'HealthCorp' },
+  { id: 'p6', sku: 'GEN-002', name: 'Digital Thermometer', price: 15.00, cost: 5.00, category: 'General', lowStockThreshold: 10, manufacturer: 'MedTech' },
+  { id: 'p7', sku: 'PC-002', name: 'Protein Bar', price: 2.50, cost: 0.80, category: 'Personal Care', lowStockThreshold: 50, supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.', manufacturer: 'GoodFoods' },
 ];
+
+const getInitialInventory = (): InventoryItem[] => [
+    { id: 'inv1', productId: 'p1', quantity: 100, expiryDate: getFutureDate(365), addedDate: new Date().toISOString() },
+    { id: 'inv2', productId: 'p1', quantity: 50, expiryDate: getFutureDate(180), addedDate: new Date().toISOString() },
+    { id: 'inv3', productId: 'p2', quantity: 80, expiryDate: getFutureDate(25), addedDate: new Date().toISOString() },
+    { id: 'inv4', productId: 'p3', quantity: 40, expiryDate: getFutureDate(-10), addedDate: new Date().toISOString() },
+    { id: 'inv5', productId: 'p4', quantity: 120, expiryDate: getFutureDate(180), addedDate: new Date().toISOString() },
+    { id: 'inv6', productId: 'p5', quantity: 100, expiryDate: getFutureDate(700), addedDate: new Date().toISOString() },
+    { id: 'inv7', productId: 'p6', quantity: 50, addedDate: new Date().toISOString() },
+    { id: 'inv8', productId: 'p7', quantity: 200, expiryDate: getFutureDate(90), addedDate: new Date().toISOString() },
+];
+
 
 const getInitialSettings = (): AppSettings => ({
   appName: 'Pharmasist',
@@ -58,6 +71,9 @@ const seedData = () => {
   }
   if (!localStorage.getItem(PRODUCTS_KEY)) {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(getInitialProducts()));
+  }
+  if (!localStorage.getItem(INVENTORY_KEY)) {
+    localStorage.setItem(INVENTORY_KEY, JSON.stringify(getInitialInventory()));
   }
   if (!localStorage.getItem(SALES_KEY)) {
     localStorage.setItem(SALES_KEY, JSON.stringify([]));
@@ -88,13 +104,11 @@ const api = {
     const users = getUsersWithPasswords();
     const index = users.findIndex(u => u.id === user.id);
     if (index !== -1) {
-        // If password is not provided on update, keep the old one
         if (!user.password) {
             user.password = users[index].password;
         }
         users[index] = user;
     } else {
-        // For new users, password is required
         if(!user.password) throw new Error("Password is required for new users.");
         users.push(user);
     }
@@ -129,6 +143,10 @@ const api = {
     let products = api.getProducts();
     products = products.filter(p => p.id !== productId);
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    // Also delete associated inventory items
+    let inventory = api.getInventory();
+    inventory = inventory.filter(i => i.productId !== productId);
+    localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory));
   },
   bulkAddProducts: (newProducts: Omit<Product, 'id'>[]): { added: number, updated: number } => {
     const products = api.getProducts();
@@ -138,11 +156,9 @@ const api = {
     newProducts.forEach(newProduct => {
       const index = products.findIndex(p => p.sku.toLowerCase() === newProduct.sku.toLowerCase());
       if (index !== -1) {
-        // Update existing product. Keep the ID and merge properties.
         products[index] = { ...products[index], ...newProduct };
         updated++;
       } else {
-        // Add new product with a new ID.
         products.push({ ...newProduct, id: `prod-${Date.now()}-${Math.random()}` });
         added++;
       }
@@ -152,6 +168,22 @@ const api = {
     return { added, updated };
   },
 
+  // INVENTORY
+  getInventory: (): InventoryItem[] => {
+    return JSON.parse(localStorage.getItem(INVENTORY_KEY) || '[]');
+  },
+  saveInventoryItem: (item: InventoryItem): InventoryItem => {
+    const inventory = api.getInventory();
+    const index = inventory.findIndex(i => i.id === item.id);
+     if (index !== -1) {
+      inventory[index] = item;
+    } else {
+      inventory.push(item);
+    }
+    localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory));
+    return item;
+  },
+
   // SALES
   getSales: (): Sale[] => {
     return JSON.parse(localStorage.getItem(SALES_KEY) || '[]').sort((a: Sale, b: Sale) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -159,8 +191,8 @@ const api = {
   addSale: (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>): Sale => {
     const sales = api.getSales();
     const products = api.getProducts();
+    let inventory = api.getInventory();
 
-    // Attach cost to each item and calculate total cost
     const itemsWithCost: CartItem[] = sale.items.map(item => {
         const product = products.find(p => p.id === item.id);
         return { ...item, cost: product?.cost || 0 };
@@ -177,17 +209,34 @@ const api = {
         totalProfit,
     };
     
+    // Update inventory using FEFO (First-Expired, First-Out)
+    newSale.items.forEach(item => {
+        let quantityToDeduct = item.quantity;
+        const productBatches = inventory
+            .filter(i => i.productId === item.id && i.quantity > 0)
+            .sort((a, b) => {
+                const dateA = a.expiryDate ? new Date(a.expiryDate).getTime() : Infinity;
+                const dateB = b.expiryDate ? new Date(b.expiryDate).getTime() : Infinity;
+                if(dateA === dateB) {
+                    return new Date(a.addedDate).getTime() - new Date(b.addedDate).getTime(); // FIFO for same expiry
+                }
+                return dateA - dateB; // FEFO
+            });
+
+        for (const batch of productBatches) {
+            if (quantityToDeduct <= 0) break;
+
+            const deductAmount = Math.min(quantityToDeduct, batch.quantity);
+            batch.quantity -= deductAmount;
+            quantityToDeduct -= deductAmount;
+        }
+    });
+
+    const updatedInventory = inventory.filter(i => i.quantity > 0);
+    localStorage.setItem(INVENTORY_KEY, JSON.stringify(updatedInventory));
+
     sales.push(newSale);
     localStorage.setItem(SALES_KEY, JSON.stringify(sales));
-
-    // Update stock
-    newSale.items.forEach(item => {
-      const productIndex = products.findIndex(p => p.id === item.id);
-      if (productIndex !== -1) {
-        products[productIndex].stock -= item.quantity;
-      }
-    });
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
     
     return newSale;
   },
@@ -225,7 +274,6 @@ const api = {
       if (index !== -1) {
           const oldCategoryName = categories[index].name;
           categories[index] = category;
-          // If name changed, update all products
           if (oldCategoryName !== category.name) {
               const products = api.getProducts();
               const updatedProducts = products.map(p => 
@@ -243,11 +291,9 @@ const api = {
       const categories = api.getCategories();
       const categoryToDelete = categories.find(c => c.id === categoryId);
       if (!categoryToDelete || categoryToDelete.name === 'General') {
-        // Prevent deleting the default 'General' category
         return;
       }
 
-      // Re-assign products to 'General' category
       const products = api.getProducts();
       const updatedProducts = products.map(p => 
           p.category === categoryToDelete.name ? { ...p, category: 'General' } : p
@@ -285,7 +331,6 @@ const api = {
         const updatedSuppliers = suppliers.filter(s => s.id !== supplierId);
         localStorage.setItem(SUPPLIERS_KEY, JSON.stringify(updatedSuppliers));
         
-        // Un-assign from products
         const products = api.getProducts();
         const updatedProducts = products.map(p => {
             if (p.supplierId === supplierId) {
