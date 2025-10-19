@@ -18,6 +18,22 @@ export enum PurchaseOrderStatus {
   CANCELLED = 'Cancelled',
 }
 
+export enum NotificationType {
+  PO_SHIPPED = 'PO Shipped',
+  PO_RECEIVED = 'PO Received',
+  PO_OVERDUE = 'PO Overdue',
+}
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link: string; // e.g., '#/purchase-orders/po-1'
+  isRead: boolean;
+  timestamp: string;
+}
+
 export interface PurchaseOrderItem {
   productId: string;
   productName: string;

@@ -1,4 +1,4 @@
-import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod, PurchaseOrder, PurchaseOrderStatus, Refund } from '../types';
+import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod, PurchaseOrder, PurchaseOrderStatus, Refund, Notification, NotificationType } from '../types';
 
 const USERS_KEY = 'pharmacy_users';
 const PRODUCTS_KEY = 'pharmacy_products';
@@ -11,6 +11,7 @@ const SUPPLIERS_KEY = 'pharmacy_suppliers';
 const TASKS_KEY = 'pharmacy_tasks';
 const PURCHASE_ORDERS_KEY = 'pharmacy_purchase_orders';
 const REFUNDS_KEY = 'pharmacy_refunds';
+const NOTIFICATIONS_KEY = 'pharmacy_notifications';
 
 const getInitialUsers = (): User[] => [
   { id: 'u1', username: 'admin', password: 'password', role: UserRole.SUPER_ADMIN, name: 'Admin User' },
@@ -257,6 +258,9 @@ const seedData = () => {
   }
   if (!localStorage.getItem(REFUNDS_KEY)) {
     localStorage.setItem(REFUNDS_KEY, JSON.stringify([]));
+  }
+  if (!localStorage.getItem(NOTIFICATIONS_KEY)) {
+    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify([]));
   }
 };
 
@@ -643,12 +647,32 @@ const api = {
     savePurchaseOrder: (po: PurchaseOrder): PurchaseOrder => {
         const pos = api.getPurchaseOrders();
         const index = pos.findIndex(p => p.id === po.id);
+        const oldPO = index !== -1 ? pos[index] : null;
+
         if (index !== -1) {
             pos[index] = po;
         } else {
             pos.unshift(po);
         }
         localStorage.setItem(PURCHASE_ORDERS_KEY, JSON.stringify(pos));
+
+        if (oldPO && oldPO.status !== po.status) {
+            if (po.status === PurchaseOrderStatus.SHIPPED) {
+                api.addNotification({
+                    type: NotificationType.PO_SHIPPED,
+                    title: 'PO Shipped',
+                    message: `Purchase Order ${po.poNumber} from ${po.supplierName} has been shipped.`,
+                    link: `#/purchase-orders/${po.id}`
+                });
+            } else if (po.status === PurchaseOrderStatus.RECEIVED) {
+                 api.addNotification({
+                    type: NotificationType.PO_RECEIVED,
+                    title: 'PO Received',
+                    message: `Purchase Order ${po.poNumber} has been fully received.`,
+                    link: `#/purchase-orders/${po.id}`
+                });
+            }
+        }
         return po;
     },
     deletePurchaseOrder: (poId: string): void => {
@@ -656,6 +680,49 @@ const api = {
         pos = pos.filter(p => p.id !== poId);
         localStorage.setItem(PURCHASE_ORDERS_KEY, JSON.stringify(pos));
     },
+
+    // NOTIFICATIONS
+    getNotifications: (): Notification[] => {
+        return JSON.parse(localStorage.getItem(NOTIFICATIONS_KEY) || '[]').sort((a: Notification, b: Notification) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    },
+    addNotification: (notificationData: Omit<Notification, 'id' | 'timestamp' | 'isRead'>): Notification => {
+        const notifications = api.getNotifications();
+        const newNotification: Notification = {
+            ...notificationData,
+            id: `notif-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            isRead: false
+        };
+        notifications.unshift(newNotification);
+        localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications.slice(0, 50))); // Keep last 50
+        return newNotification;
+    },
+    markNotificationsAsRead: (ids: string[]): void => {
+        let notifications = api.getNotifications();
+        notifications = notifications.map(n => ids.includes(n.id) ? { ...n, isRead: true } : n);
+        localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
+    },
+    checkForOverduePurchaseOrders: (): void => {
+        const pos = api.getPurchaseOrders().filter(p => (p.status === PurchaseOrderStatus.SUBMITTED || p.status === PurchaseOrderStatus.SHIPPED) && p.expectedDeliveryDate);
+        const notifications = api.getNotifications();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        pos.forEach(po => {
+            const expectedDate = new Date(po.expectedDeliveryDate!);
+            if (expectedDate < today) {
+                const existingNotif = notifications.find(n => n.link === `#/purchase-orders/${po.id}` && n.type === NotificationType.PO_OVERDUE);
+                if (!existingNotif) {
+                    api.addNotification({
+                        type: NotificationType.PO_OVERDUE,
+                        title: 'PO Overdue',
+                        message: `PO ${po.poNumber} was expected on ${expectedDate.toLocaleDateString()} but has not been received.`,
+                        link: `#/purchase-orders/${po.id}`
+                    });
+                }
+            }
+        });
+    }
 };
 
 export default api;

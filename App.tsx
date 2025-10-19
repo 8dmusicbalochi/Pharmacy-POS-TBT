@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, createContext, useContext, useCallback, useMemo, ReactNode, useRef } from 'react';
-import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem, Task, PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, Refund } from './types';
+import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem, Task, PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, Refund, Notification, NotificationType } from './types';
 import mockApi from './services/mockApi';
 
 // Declare the html5-qrcode library which is loaded from a script tag
@@ -50,1615 +49,569 @@ const icons = {
     sort: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-1 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>,
     sortAsc: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>,
     sortDesc: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>,
-    refresh: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm10 8a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 111.885-.666A5.002 5.002 0 0014.001 13H11a1 1 0 01-1-1z" clipRule="evenodd" /></svg>,
-    refund: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clipRule="evenodd" /></svg>,
+    refresh: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>,
 };
 
-
-// --- HELPERS --- //
-const getExpiryStatus = (expiryDate?: string) => {
-    if (!expiryDate) return { text: 'N/A', className: '', days: Infinity };
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Normalize today's date
-    const expiry = new Date(expiryDate);
-    const diffTime = expiry.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-        return { text: `Expired`, className: 'text-red-700 dark:text-red-400 font-bold', days: diffDays };
-    }
-    if (diffDays <= 30) {
-        return { text: `Expires in ${diffDays} day(s)`, className: 'text-amber-600 dark:text-amber-400', days: diffDays };
-    }
-    return { text: expiry.toLocaleDateString(), className: '', days: diffDays };
-};
-
-const getPOStatusColor = (status: PurchaseOrderStatus) => {
-    switch (status) {
-        case PurchaseOrderStatus.PENDING: return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300';
-        case PurchaseOrderStatus.SUBMITTED: return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
-        case PurchaseOrderStatus.SHIPPED: return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300';
-        case PurchaseOrderStatus.PARTIALLY_RECEIVED: return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300';
-        case PurchaseOrderStatus.RECEIVED: return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300';
-        case PurchaseOrderStatus.CANCELLED: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-        default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700';
-    }
-};
-
-const getSaleStatus = (sale: Sale): { text: string; className: string } => {
-    if (!sale.refundedAmount || sale.refundedAmount === 0) {
-        return { text: 'Completed', className: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' };
-    }
-    if (sale.refundedAmount >= sale.total) {
-        return { text: 'Refunded', className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' };
-    }
-    return { text: 'Partially Refunded', className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300' };
-};
-
-const INPUT_FIELD_CLASSES = "mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-transparent focus:outline-none focus:ring-primary focus:border-primary dark:border-gray-600 dark:text-white";
-
-// --- THEME CONTEXT --- //
-type Theme = 'light' | 'dark';
-type ThemeContextType = {
-  theme: Theme;
-  toggleTheme: () => void;
-};
-const ThemeContext = createContext<ThemeContextType | null>(null);
-
-const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [theme, setTheme] = useState<Theme>(() => {
-        const savedTheme = localStorage.getItem('theme') as Theme;
-        return savedTheme || 'light';
-    });
-
-    useEffect(() => {
-        const root = window.document.documentElement;
-        root.classList.remove('light', 'dark');
-        root.classList.add(theme);
-        localStorage.setItem('theme', theme);
-    }, [theme]);
-
-    const toggleTheme = () => {
-        setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-    };
-
-    return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
-};
-
-const useTheme = () => {
-    const context = useContext(ThemeContext);
-    if (!context) throw new Error('useTheme must be used within a ThemeProvider');
-    return context;
-};
-
-// --- AUTH CONTEXT --- //
-type AuthContextType = {
-  user: User | null;
-  login: (username: string, password: string) => Promise<boolean>;
-  logout: () => void;
-};
-const AuthContext = createContext<AuthContextType | null>(null);
-
-const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-        const savedUser = localStorage.getItem('currentUser');
-        return savedUser ? JSON.parse(savedUser) : null;
-    } catch (error) {
-        console.error("Failed to parse user from localStorage", error);
-        localStorage.removeItem('currentUser');
-        return null;
-    }
-  });
-
-  const login = async (username: string, password: string): Promise<boolean> => {
-    const users = mockApi.getUsersForAuth();
-    const foundUser = users.find(u => u.username === username && u.password === password);
-    if (foundUser) {
-      const userToSave = { ...foundUser };
-      delete userToSave.password;
-      setUser(userToSave);
-      localStorage.setItem('currentUser', JSON.stringify(userToSave));
-      return true;
-    }
-    return false;
-  };
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('currentUser');
-  };
-
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
-};
-
-const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
-  return context;
-};
-
-
-// --- DATA STORE CONTEXT --- //
-type ProductWithStock = Product & { totalStock: number; batches: InventoryItem[] };
-
-type StoreContextType = {
+// --- DATA STORE / CONTEXT --- //
+interface StoreContextType {
+    currentUser: User | null;
+    login: (username: string, pass: string) => boolean;
+    logout: () => void;
     users: Omit<User, 'password'>[];
     products: Product[];
-    productsWithStock: ProductWithStock[];
     inventory: InventoryItem[];
     sales: Sale[];
-    refunds: Refund[];
     auditLogs: AuditLog[];
-    tasks: Task[];
     settings: AppSettings;
     categories: Category[];
     suppliers: Supplier[];
+    tasks: Task[];
     purchaseOrders: PurchaseOrder[];
-    refreshData: () => void;
-    saveUser: (user: User) => Promise<void>;
-    deleteUser: (userId: string) => Promise<void>;
-    saveProduct: (product: Product) => Promise<Product>;
-    deleteProduct: (productId: string) => Promise<void>;
-    saveInventoryItem: (item: InventoryItem) => Promise<void>;
-    receiveStockAndUpdatePO: (item: InventoryItem) => Promise<void>;
-    addSale: (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => Promise<Sale>;
-    addRefund: (refund: Omit<Refund, 'id'>) => Promise<Refund>;
-    addAuditLog: (log: Omit<AuditLog, 'id'>) => Promise<void>;
-    saveTask: (task: Task) => Promise<void>;
-    deleteTask: (taskId: string) => Promise<void>;
-    saveSettings: (settings: AppSettings) => Promise<void>;
-    saveCategory: (category: Category) => Promise<void>;
-    deleteCategory: (categoryId: string) => Promise<void>;
-    saveSupplier: (supplier: Supplier) => Promise<void>;
-    deleteSupplier: (supplierId: string) => Promise<void>;
-    savePurchaseOrder: (po: PurchaseOrder) => Promise<void>;
-    deletePurchaseOrder: (poId: string) => Promise<void>;
-    bulkAddProducts: (products: Omit<Product, 'id'>[]) => Promise<{ added: number; updated: number }>;
-};
+    refunds: Refund[];
+    notifications: Notification[];
+    fetchData: (dataType: keyof Omit<StoreContextType, 'currentUser' | 'login' | 'logout' | 'fetchData' | 'getters' | 'actions' | 'settings'>) => void;
+    getters: {
+        getProductById: (id: string) => Product | undefined;
+        getInventoryForProduct: (productId: string) => InventoryItem[];
+        getTotalStock: (productId: string) => number;
+        getSupplierById: (id: string) => Supplier | undefined;
+        getUserById: (id: string) => Omit<User, 'password'> | undefined;
+        getSaleById: (id: string) => Sale | undefined;
+        getPurchaseOrderById: (id: string) => PurchaseOrder | undefined;
+    };
+    actions: {
+        saveUser: (user: User) => Promise<void>;
+        deleteUser: (userId: string) => Promise<void>;
+        saveProduct: (product: Product) => Promise<void>;
+        deleteProduct: (productId: string) => Promise<void>;
+        bulkAddProducts: (products: Omit<Product, 'id'>[]) => Promise<{ added: number, updated: number }>;
+        receiveStock: (item: Omit<InventoryItem, 'id' | 'addedDate'>) => Promise<void>;
+        addSale: (sale: Omit<Sale, 'id'| 'totalCost'| 'totalProfit'>) => Promise<Sale>;
+        addAuditLog: (log: Omit<AuditLog, 'id'>) => Promise<void>;
+        saveSettings: (settings: AppSettings) => Promise<void>;
+        saveCategory: (category: Category) => Promise<void>;
+        deleteCategory: (categoryId: string) => Promise<void>;
+        saveSupplier: (supplier: Supplier) => Promise<void>;
+        deleteSupplier: (supplierId: string) => Promise<void>;
+        saveTask: (task: Task) => Promise<void>;
+        deleteTask: (taskId: string) => Promise<void>;
+        savePurchaseOrder: (po: PurchaseOrder) => Promise<PurchaseOrder>;
+        deletePurchaseOrder: (poId: string) => Promise<void>;
+        addRefund: (refund: Omit<Refund, 'id'>) => Promise<void>;
+        markNotificationsAsRead: (ids: string[]) => Promise<void>;
+    };
+}
 
 const StoreContext = createContext<StoreContextType | null>(null);
 
-const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const useStore = () => {
+    const context = useContext(StoreContext);
+    if (!context) {
+        throw new Error('useStore must be used within a StoreProvider');
+    }
+    return context;
+};
+
+const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const [currentUser, setCurrentUser] = useState<User | null>(() => {
+        const storedUser = sessionStorage.getItem('currentUser');
+        return storedUser ? JSON.parse(storedUser) : null;
+    });
     const [users, setUsers] = useState<Omit<User, 'password'>[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [sales, setSales] = useState<Sale[]>([]);
-    const [refunds, setRefunds] = useState<Refund[]>([]);
     const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-    const [tasks, setTasks] = useState<Task[]>([]);
-    const [settings, setSettings] = useState<AppSettings>({ appName: 'Pharmasist', currencySymbol: '$' });
+    const [settings, setSettings] = useState<AppSettings>(mockApi.getSettings());
     const [categories, setCategories] = useState<Category[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+    const [tasks, setTasks] = useState<Task[]>([]);
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-
-    const refreshData = useCallback(() => {
-        setUsers(mockApi.getUsers());
-        setProducts(mockApi.getProducts());
-        setInventory(mockApi.getInventory());
-        setSales(mockApi.getSales());
-        setRefunds(mockApi.getRefunds());
-        setAuditLogs(mockApi.getAuditLogs());
-        setTasks(mockApi.getTasks());
-        setSettings(mockApi.getSettings());
-        setCategories(mockApi.getCategories());
-        setSuppliers(mockApi.getSuppliers());
-        setPurchaseOrders(mockApi.getPurchaseOrders());
+    const [refunds, setRefunds] = useState<Refund[]>([]);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    
+    const fetchData = useCallback((dataType: keyof Omit<StoreContextType, 'currentUser' | 'login' | 'logout' | 'fetchData' | 'getters' | 'actions' | 'settings'>) => {
+        try {
+            switch (dataType) {
+                case 'users': setUsers(mockApi.getUsers()); break;
+                case 'products': setProducts(mockApi.getProducts()); break;
+                case 'inventory': setInventory(mockApi.getInventory()); break;
+                case 'sales': setSales(mockApi.getSales()); break;
+                case 'auditLogs': setAuditLogs(mockApi.getAuditLogs()); break;
+                case 'categories': setCategories(mockApi.getCategories()); break;
+                case 'suppliers': setSuppliers(mockApi.getSuppliers()); break;
+                case 'tasks': setTasks(mockApi.getTasks()); break;
+                case 'purchaseOrders': setPurchaseOrders(mockApi.getPurchaseOrders()); break;
+                case 'refunds': setRefunds(mockApi.getRefunds()); break;
+                case 'notifications': setNotifications(mockApi.getNotifications()); break;
+            }
+        } catch (error) {
+            console.error(`Error fetching ${dataType}:`, error);
+        }
     }, []);
 
     useEffect(() => {
-        refreshData();
-    }, [refreshData]);
-
-    const productsWithStock = useMemo<ProductWithStock[]>(() => {
-        const inventoryByProduct = new Map<string, { totalStock: number; batches: InventoryItem[] }>();
-        inventory.forEach(item => {
-            const existing = inventoryByProduct.get(item.productId) || { totalStock: 0, batches: [] };
-            existing.totalStock += item.quantity;
-            existing.batches.push(item);
-            inventoryByProduct.set(item.productId, existing);
-        });
-        return products.map(p => ({
-            ...p,
-            totalStock: inventoryByProduct.get(p.id)?.totalStock || 0,
-            batches: inventoryByProduct.get(p.id)?.batches || [],
-        }));
-    }, [products, inventory]);
-
-    const saveUser = async (user: User) => { mockApi.saveUser(user); refreshData(); };
-    const deleteUser = async (userId: string) => { mockApi.deleteUser(userId); refreshData(); };
-    const saveProduct = async (product: Product) => { const saved = mockApi.saveProduct(product); refreshData(); return saved; };
-    const deleteProduct = async (productId: string) => { mockApi.deleteProduct(productId); refreshData(); }
-    const saveInventoryItem = async (item: InventoryItem) => { mockApi.saveInventoryItem(item); refreshData(); }
-    const receiveStockAndUpdatePO = async (item: InventoryItem) => { mockApi.receiveStockAndUpdatePO(item); refreshData(); };
-    const addSale = async (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => { const newSale = mockApi.addSale(sale); refreshData(); return newSale; }
-    const addRefund = async (refund: Omit<Refund, 'id'>) => { const newRefund = mockApi.addRefund(refund); refreshData(); return newRefund; };
-    const addAuditLog = async (log: Omit<AuditLog, 'id'>) => { mockApi.addAuditLog(log); refreshData(); };
-    const saveTask = async (task: Task) => { mockApi.saveTask(task); refreshData(); };
-    const deleteTask = async (taskId: string) => { mockApi.deleteTask(taskId); refreshData(); };
-    const saveSettings = async (newSettings: AppSettings) => { mockApi.saveSettings(newSettings); refreshData(); };
-    const saveCategory = async (category: Category) => { mockApi.saveCategory(category); refreshData(); };
-    const deleteCategory = async (categoryId: string) => { mockApi.deleteCategory(categoryId); refreshData(); };
-    const saveSupplier = async (supplier: Supplier) => { mockApi.saveSupplier(supplier); refreshData(); };
-    const deleteSupplier = async (supplierId: string) => { mockApi.deleteSupplier(supplierId); refreshData(); };
-    const savePurchaseOrder = async (po: PurchaseOrder) => { mockApi.savePurchaseOrder(po); refreshData(); };
-    const deletePurchaseOrder = async (poId: string) => { mockApi.deletePurchaseOrder(poId); refreshData(); };
-    const bulkAddProducts = async (products: Omit<Product, 'id'>[]) => { const result = mockApi.bulkAddProducts(products); refreshData(); return result; };
-
-
-    return (
-        <StoreContext.Provider value={{ users, products, productsWithStock, inventory, sales, refunds, auditLogs, tasks, settings, categories, suppliers, purchaseOrders, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, saveInventoryItem, receiveStockAndUpdatePO, addSale, addRefund, addAuditLog, saveTask, deleteTask, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, savePurchaseOrder, deletePurchaseOrder, bulkAddProducts }}>
-            {children}
-        </StoreContext.Provider>
-    );
-};
-
-const useStore = () => {
-    const context = useContext(StoreContext);
-    if (!context) throw new Error('useStore must be used within a StoreProvider');
-    return context;
-};
-
-// --- REUSABLE HOOKS --- //
-type SortDirection = 'asc' | 'desc';
-type SortConfig<T> = {
-    key: keyof T;
-    direction: SortDirection;
-} | null;
-
-const useSort = <T,>(items: T[], initialConfig: SortConfig<T> = null) => {
-    const [sortConfig, setSortConfig] = useState(initialConfig);
-
-    const sortedItems = useMemo(() => {
-        if (!sortConfig) {
-            return items;
-        }
-
-        return [...items].sort((a, b) => {
-            const aValue = a[sortConfig.key];
-            const bValue = b[sortConfig.key];
-
-            if (aValue === null || aValue === undefined) return 1;
-            if (bValue === null || bValue === undefined) return -1;
-            
-            if (typeof aValue === 'string' && typeof bValue === 'string') {
-                 if (aValue.toLowerCase() < bValue.toLowerCase()) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue.toLowerCase() > bValue.toLowerCase()) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
-            } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-                 if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
+        if (currentUser) {
+            // Fetch all data on login
+            const dataTypes: (keyof Omit<StoreContextType, 'currentUser' | 'login' | 'logout' | 'fetchData' | 'getters' | 'actions' | 'settings'>)[] = ['users', 'products', 'inventory', 'sales', 'auditLogs', 'categories', 'suppliers', 'tasks', 'purchaseOrders', 'refunds', 'notifications'];
+            dataTypes.forEach(type => fetchData(type));
+            // Check for overdue POs on load
+            if (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.STOCK_MANAGER) {
+                mockApi.checkForOverduePurchaseOrders();
+                fetchData('notifications');
             }
-            return 0;
-        });
-    }, [items, sortConfig]);
-
-    const requestSort = (key: keyof T) => {
-        let direction: SortDirection = 'asc';
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
         }
-        setSortConfig({ key, direction });
+    }, [currentUser, fetchData]);
+
+    const login = (username: string, pass: string): boolean => {
+        const usersWithPasswords = mockApi.getUsersForAuth();
+        const user = usersWithPasswords.find(u => u.username === username && u.password === pass);
+        if (user) {
+            const { password, ...userToStore } = user;
+            setCurrentUser(userToStore);
+            sessionStorage.setItem('currentUser', JSON.stringify(userToStore));
+            return true;
+        }
+        return false;
     };
 
-    return { items: sortedItems, requestSort, sortConfig };
+    const logout = () => {
+        setCurrentUser(null);
+        sessionStorage.removeItem('currentUser');
+    };
+    
+    const getters = useMemo(() => ({
+        getProductById: (id: string) => products.find(p => p.id === id),
+        getInventoryForProduct: (productId: string) => inventory.filter(i => i.productId === productId),
+        getTotalStock: (productId: string) => inventory.filter(i => i.productId === productId).reduce((sum, item) => sum + item.quantity, 0),
+        getSupplierById: (id: string) => suppliers.find(s => s.id === id),
+        getUserById: (id: string) => users.find(u => u.id === id),
+        getSaleById: (id: string) => sales.find(s => s.id === id),
+        getPurchaseOrderById: (id: string) => purchaseOrders.find(p => p.id === id),
+    }), [products, inventory, suppliers, users, sales, purchaseOrders]);
+
+    const actions = useMemo(() => ({
+        saveUser: async (user: User) => {
+            mockApi.saveUser(user);
+            fetchData('users');
+        },
+        deleteUser: async (userId: string) => {
+            mockApi.deleteUser(userId);
+            fetchData('users');
+        },
+        saveProduct: async (product: Product) => {
+            mockApi.saveProduct(product);
+            fetchData('products');
+        },
+        deleteProduct: async (productId: string) => {
+            mockApi.deleteProduct(productId);
+            fetchData('products');
+            fetchData('inventory');
+        },
+        bulkAddProducts: async (newProducts: Omit<Product, 'id'>[]) => {
+            const result = mockApi.bulkAddProducts(newProducts);
+            fetchData('products');
+            return result;
+        },
+        receiveStock: async (item: Omit<InventoryItem, 'id'|'addedDate'>) => {
+            const fullItem: InventoryItem = {
+                ...item,
+                id: `inv-${Date.now()}`,
+                addedDate: new Date().toISOString()
+            };
+            mockApi.receiveStockAndUpdatePO(fullItem);
+            fetchData('inventory');
+            if(fullItem.purchaseOrderId) fetchData('purchaseOrders');
+        },
+        addSale: async (sale: Omit<Sale, 'id'| 'totalCost'| 'totalProfit'>) => {
+            const newSale = mockApi.addSale(sale);
+            fetchData('sales');
+            fetchData('inventory'); // Inventory is updated
+            return newSale;
+        },
+        addAuditLog: async (log: Omit<AuditLog, 'id'>) => {
+            mockApi.addAuditLog(log);
+            fetchData('auditLogs');
+        },
+        saveSettings: async (newSettings: AppSettings) => {
+            mockApi.saveSettings(newSettings);
+            setSettings(newSettings);
+        },
+        saveCategory: async (category: Category) => {
+            mockApi.saveCategory(category);
+            fetchData('categories');
+            fetchData('products');
+        },
+        deleteCategory: async (categoryId: string) => {
+            mockApi.deleteCategory(categoryId);
+            fetchData('categories');
+            fetchData('products');
+        },
+        saveSupplier: async (supplier: Supplier) => {
+            mockApi.saveSupplier(supplier);
+            fetchData('suppliers');
+        },
+        deleteSupplier: async (supplierId: string) => {
+            mockApi.deleteSupplier(supplierId);
+            fetchData('suppliers');
+        },
+        saveTask: async (task: Task) => {
+            mockApi.saveTask(task);
+            fetchData('tasks');
+        },
+        deleteTask: async (taskId: string) => {
+            mockApi.deleteTask(taskId);
+            fetchData('tasks');
+        },
+        savePurchaseOrder: async (po: PurchaseOrder): Promise<PurchaseOrder> => {
+            const savedPo = mockApi.savePurchaseOrder(po);
+            fetchData('purchaseOrders');
+            fetchData('notifications'); // Status changes might create notifications
+            return savedPo;
+        },
+        deletePurchaseOrder: async (poId: string) => {
+            mockApi.deletePurchaseOrder(poId);
+            fetchData('purchaseOrders');
+        },
+        addRefund: async (refund: Omit<Refund, 'id'>) => {
+            mockApi.addRefund(refund);
+            fetchData('refunds');
+            fetchData('sales');
+            fetchData('inventory');
+            fetchData('auditLogs');
+        },
+        markNotificationsAsRead: async (ids: string[]) => {
+            mockApi.markNotificationsAsRead(ids);
+            fetchData('notifications');
+        }
+    }), [fetchData]);
+
+    const value = {
+        currentUser,
+        login,
+        logout,
+        users,
+        products,
+        inventory,
+        sales,
+        auditLogs,
+        settings,
+        categories,
+        suppliers,
+        tasks,
+        purchaseOrders,
+        refunds,
+        notifications,
+        fetchData,
+        getters,
+        actions,
+    };
+
+    return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+};
+
+// --- HOOKS --- //
+const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => void] => {
+    const [storedValue, setStoredValue] = useState<T>(() => {
+        try {
+            const item = window.localStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            console.log(error);
+            return initialValue;
+        }
+    });
+
+    const setValue = (value: T) => {
+        try {
+            const valueToStore = value instanceof Function ? value(storedValue) : value;
+            setStoredValue(valueToStore);
+            window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (error) {
+            console.log(error);
+        }
+    };
+
+    return [storedValue, setValue];
+};
+
+const useDarkMode = () => {
+    const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
+
+    useEffect(() => {
+        const root = window.document.documentElement;
+        root.classList.remove(theme === 'dark' ? 'light' : 'dark');
+        root.classList.add(theme);
+    }, [theme]);
+
+    return [theme, setTheme] as const;
+};
+
+const useRouter = () => {
+    const [hash, setHash] = useState(window.location.hash);
+
+    const handleHashChange = useCallback(() => {
+        setHash(window.location.hash);
+    }, []);
+
+    useEffect(() => {
+        window.addEventListener('hashchange', handleHashChange);
+        return () => {
+            window.removeEventListener('hashchange', handleHashChange);
+        };
+    }, [handleHashChange]);
+
+    const navigate = (path: string) => {
+        window.location.hash = path;
+    };
+    
+    const { page, param } = useMemo(() => {
+        const pathParts = hash.replace('#/', '').split('/');
+        const page = pathParts[0] || 'dashboard';
+        const param = pathParts[1];
+        return { page, param };
+    }, [hash]);
+
+    return { page, param, navigate };
+};
+
+const useDebounce = <T,>(value: T, delay: number): T => {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+    return debouncedValue;
+};
+
+const useSort = <T,>(data: T[], initialSortKey: keyof T, initialSortOrder: 'asc' | 'desc' = 'asc') => {
+    const [sortKey, setSortKey] = useState<keyof T>(initialSortKey);
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialSortOrder);
+
+    const sortedData = useMemo(() => {
+        if (!sortKey) return data;
+
+        return [...data].sort((a, b) => {
+            const aValue = a[sortKey];
+            const bValue = b[sortKey];
+            
+            if (aValue === undefined || aValue === null) return 1;
+            if (bValue === undefined || bValue === null) return -1;
+            
+            if (typeof aValue === 'string' && typeof bValue === 'string') {
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+            }
+            
+            if (typeof aValue === 'number' && typeof bValue === 'number') {
+                return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+            }
+            
+            // Fallback for dates as strings
+            const aDate = new Date(aValue as any).getTime();
+            const bDate = new Date(bValue as any).getTime();
+            if (!isNaN(aDate) && !isNaN(bDate)) {
+                 return sortOrder === 'asc' ? aDate - bDate : bDate - aDate;
+            }
+
+            return 0;
+        });
+    }, [data, sortKey, sortOrder]);
+    
+    const handleSort = (key: keyof T) => {
+        if (sortKey === key) {
+            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortKey(key);
+            setSortOrder('asc');
+        }
+    };
+    
+    const renderSortArrow = (key: keyof T) => {
+        if (sortKey !== key) {
+            return icons.sort;
+        }
+        return sortOrder === 'asc' ? icons.sortAsc : icons.sortDesc;
+    };
+    
+    return { sortedData, handleSort, renderSortArrow, sortKey, sortOrder };
 };
 
 
-// --- REUSABLE COMPONENTS --- //
-const SortableHeader: React.FC<{
-    label: string;
-    sortKey: any;
-    sortConfig: SortConfig<any>;
-    requestSort: (key: any) => void;
-    className?: string;
-}> = ({ label, sortKey, sortConfig, requestSort, className="" }) => {
-    const isSorted = sortConfig?.key === sortKey;
-    const directionIcon = isSorted ? (sortConfig?.direction === 'asc' ? icons.sortAsc : icons.sortDesc) : icons.sort;
+// --- UTILITY COMPONENTS --- //
+
+const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: ReactNode; size?: 'sm' | 'md' | 'lg' | 'xl' }> = ({ isOpen, onClose, title, children, size = 'md' }) => {
+    if (!isOpen) return null;
+
+    const sizeClasses = {
+        sm: 'sm:max-w-sm',
+        md: 'sm:max-w-md',
+        lg: 'sm:max-w-lg',
+        xl: 'sm:max-w-xl',
+    };
+
     return (
-        <th className={`px-4 py-3 cursor-pointer ${className}`} onClick={() => requestSort(sortKey)}>
-            {label} {directionIcon}
-        </th>
+        <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div className="flex items-end justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
+                <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                <div className={`inline-block align-bottom bg-white dark:bg-dark-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle w-full ${sizeClasses[size]}`}>
+                    <div className="bg-white dark:bg-dark-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div className="sm:flex sm:items-start">
+                            <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                                <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white" id="modal-title">
+                                    {title}
+                                </h3>
+                                <div className="mt-4">
+                                    {children}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                     <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" onClick={onClose} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 };
 
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode }> = ({ title, value, icon }) => (
-    <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md flex items-center justify-between">
-        <div className="overflow-hidden">
-            <p className="text-gray-500 dark:text-gray-400 text-sm truncate">{title}</p>
-            <p className="text-2xl font-bold text-dark dark:text-light break-words">{value}</p>
+const Tooltip: React.FC<{ text: string; children: ReactNode }> = ({ text, children }) => {
+    return (
+        <div className="relative group">
+            {children}
+            <div className="absolute bottom-full mb-2 hidden group-hover:block w-max">
+                <div className="bg-gray-800 text-white text-xs rounded py-1 px-2">
+                    {text}
+                </div>
+            </div>
         </div>
-        <div className="bg-primary/10 text-primary p-3 rounded-full ml-4 flex-shrink-0">{icon}</div>
+    );
+};
+
+const LoadingSpinner: React.FC = () => (
+    <div className="flex justify-center items-center h-full">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div>
     </div>
 );
 
-const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; maxWidth?: string; }> = ({ isOpen, onClose, title, children, maxWidth = 'max-w-md' }) => {
-    if (!isOpen) return null;
+const SearchBar: React.FC<{ value: string; onChange: (value: string) => void; placeholder?: string }> = ({ value, onChange, placeholder = "Search..." }) => {
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4">
-            <div className={`bg-white dark:bg-dark-card rounded-lg shadow-xl w-full ${maxWidth}`}>
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                    <h3 className="text-xl font-semibold text-dark dark:text-light">{title}</h3>
-                    <button onClick={onClose} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white">{icons.close}</button>
-                </div>
-                <div className="p-6 max-h-[80vh] overflow-y-auto">{children}</div>
+        <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                {icons.search}
             </div>
+            <input
+                type="text"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white dark:bg-dark-card dark:border-gray-600 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm"
+            />
         </div>
     );
 };
 
-const ConfirmationModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onConfirm: () => void;
-    title: string;
-    children: React.ReactNode;
-}> = ({ isOpen, onClose, onConfirm, title, children }) => {
-    if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4">
-            <div className="bg-white dark:bg-dark-card rounded-lg shadow-xl w-full max-w-md">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-xl font-semibold text-dark dark:text-light">{title}</h3>
-                </div>
-                <div className="p-6 text-gray-600 dark:text-gray-300">{children}</div>
-                <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-lg flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">
-                        Cancel
-                    </button>
-                    <button onClick={onConfirm} className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700">
-                        Confirm Delete
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
+const Pagination: React.FC<{ currentPage: number; totalPages: number; onPageChange: (page: number) => void; }> = ({ currentPage, totalPages, onPageChange }) => {
+    if (totalPages <= 1) return null;
 
-const BarcodeScannerModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onScanSuccess: (decodedText: string) => void;
-}> = ({ isOpen, onClose, onScanSuccess }) => {
-    const scannerRef = useRef<any>(null);
-
-    const handleStop = useCallback(() => {
-        if (scannerRef.current?.isScanning) {
-            scannerRef.current.stop()
-                .then(() => {
-                    if (scannerRef.current) {
-                        scannerRef.current.clear();
-                        scannerRef.current = null;
-                    }
-                })
-                .catch((err: any) => {
-                    console.error("Failed to stop scanner.", err);
-                });
-        }
-    }, []);
-
-    useEffect(() => {
-        if (isOpen && !scannerRef.current) {
-            const html5QrCode = new Html5Qrcode("barcode-reader");
-            scannerRef.current = html5QrCode;
-            
-            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-            
-            const successCallback = (decodedText: string, decodedResult: any) => {
-                onScanSuccess(decodedText);
-                handleStop();
-                onClose();
-            };
-
-            const errorCallback = (error: any) => {};
-            
-            html5QrCode.start({ facingMode: "environment" }, config, successCallback, errorCallback)
-                .catch((err: any) => {
-                    console.error("Unable to start scanning.", err);
-                    alert("Error starting scanner. Please ensure camera permissions are enabled.");
-                    handleStop();
-                    onClose();
-                });
-
-        }
-        
-        return () => {
-             if (isOpen) { // This will trigger on unmount of modal if it was open
-                handleStop();
-            }
-        };
-
-    }, [isOpen, onScanSuccess, onClose, handleStop]);
-
-    return (
-        <Modal isOpen={isOpen} onClose={() => { handleStop(); onClose(); }} title="Scan Barcode">
-            <div id="barcode-reader" style={{ width: '100%' }}></div>
-        </Modal>
-    );
-};
-
-// --- PAGES / VIEWS --- //
-
-const LoginPage: React.FC = () => {
-    const { login } = useAuth();
-    const { settings } = useStore();
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        const success = await login(username, password);
-        if (!success) {
-            setError('Invalid username or password.');
-        }
-    };
-
-    return (
-        <div className="min-h-screen bg-light dark:bg-dark-bg flex flex-col justify-center items-center p-4">
-            <div className="w-full max-w-sm">
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-primary">{settings.appName}</h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-2">Welcome back! Please sign in.</p>
-                </div>
-                <div className="bg-white dark:bg-dark-card p-8 rounded-xl shadow-lg">
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <div>
-                            <label className="block text-sm font-medium leading-6 text-gray-900 dark:text-gray-300" htmlFor="username">
-                                Username
-                            </label>
-                            <div className="mt-2">
-                                <input
-                                    id="username"
-                                    type="text"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                    className="block w-full rounded-md border-0 py-2 px-3 bg-transparent text-gray-900 dark:text-white shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm sm:leading-6"
-                                    placeholder="e.g. admin"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium leading-6 text-gray-900 dark:text-gray-300" htmlFor="password">
-                                Password
-                            </label>
-                            <div className="mt-2">
-                                <input
-                                    id="password"
-                                    type="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="block w-full rounded-md border-0 py-2 px-3 bg-transparent text-gray-900 dark:text-white shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm sm:leading-6"
-                                    placeholder="e.g. password"
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        {error && <p className="text-red-500 text-sm">{error}</p>}
-                        
-                        <div>
-                            <button
-                                type="submit"
-                                className="flex w-full justify-center rounded-md bg-primary px-3 py-2 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary transition-colors"
-                            >
-                                Sign In
-                            </button>
-                        </div>
-                    </form>
-                </div>
-                 <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800/50 rounded-lg text-xs text-gray-500 dark:text-gray-400">
-                    <h4 className="font-semibold mb-2 text-center text-gray-600 dark:text-gray-300">Demo Credentials</h4>
-                    <ul className="space-y-1">
-                        <li><b>Admin:</b> admin / password</li>
-                        <li><b>Manager:</b> manager / password</li>
-                        <li><b>Cashier:</b> cashier / password</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const DashboardPage: React.FC = () => {
-    const { productsWithStock, sales, settings, inventory, tasks, saveTask } = useStore();
-    const [salesOverviewDays, setSalesOverviewDays] = useState(30);
-
-    const totalRevenue = useMemo(() => sales.reduce((sum, sale) => sum + sale.total, 0), [sales]);
-    const totalProfit = useMemo(() => sales.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0), [sales]);
-    const inventoryValueCost = useMemo(() => productsWithStock.reduce((sum, p) => sum + (p.cost || 0) * p.totalStock, 0), [productsWithStock]);
-    const lowStockProducts = useMemo(() => productsWithStock.filter(p => p.totalStock <= p.lowStockThreshold), [productsWithStock]);
-
-    const expiringProducts = useMemo(() => {
-        return inventory
-            .filter(item => item.expiryDate)
-            .map(item => {
-                const product = productsWithStock.find(p => p.id === item.productId);
-                return { ...item, productName: product?.name || 'N/A', expiryStatus: getExpiryStatus(item.expiryDate) };
-            })
-            .filter(item => item.expiryStatus.days <= 30)
-            .sort((a, b) => a.expiryStatus.days - b.expiryStatus.days);
-    }, [inventory, productsWithStock]);
-    
-    const todayStats = useMemo(() => {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-
-        const todaysSales = sales.filter(s => new Date(s.timestamp) >= todayStart);
-        const revenue = todaysSales.reduce((sum, sale) => sum + sale.total, 0);
-        const transactions = todaysSales.length;
-
-        return { revenue, transactions };
-    }, [sales]);
-
-    const bestSellingProduct = useMemo(() => {
-        if (sales.length === 0) return 'N/A';
-        const productQuantities = new Map<string, number>();
-        sales.forEach(sale => {
-            sale.items.forEach(item => {
-                const currentQty = productQuantities.get(item.id) || 0;
-                productQuantities.set(item.id, currentQty + item.quantity);
-            });
-        });
-
-        if (productQuantities.size === 0) return 'N/A';
-        
-        let bestSellerId = '';
-        let maxQty = 0;
-        productQuantities.forEach((qty, id) => {
-            if (qty > maxQty) {
-                maxQty = qty;
-                bestSellerId = id;
-            }
-        });
-
-        const product = productsWithStock.find(p => p.id === bestSellerId);
-        return product ? `${product.name} (${maxQty} sold)` : 'N/A';
-
-    }, [sales, productsWithStock]);
-    
-    const salesOverviewData = useMemo(() => {
-        const data = [];
-        const today = new Date();
-        
-        for (let i = 0; i < salesOverviewDays; i++) {
-            const date = new Date(today);
-            date.setDate(today.getDate() - i);
-            
-            const startOfDay = new Date(date);
-            startOfDay.setHours(0, 0, 0, 0);
-            
-            const endOfDay = new Date(date);
-            endOfDay.setHours(23, 59, 59, 999);
-
-            const dailyTotal = sales
-                .filter(s => {
-                    const saleDate = new Date(s.timestamp);
-                    return saleDate >= startOfDay && saleDate <= endOfDay;
-                })
-                .reduce((sum, s) => sum + s.total, 0);
-            
-            data.push({
-                date: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-                total: dailyTotal
-            });
-        }
-        
-        const reversedData = data.reverse();
-        const maxSale = Math.max(...reversedData.map(d => d.total));
-        
-        return {
-            chartData: reversedData,
-            maxSale: maxSale > 0 ? maxSale : 1 // Avoid division by zero for height calculation
-        };
-    }, [sales, salesOverviewDays]);
-    
-    const upcomingTasks = useMemo(() => {
-        return tasks
-            .filter(t => !t.isCompleted)
-            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-            .slice(0, 5); // Show top 5
-    }, [tasks]);
-
-    const handleToggleTask = async (task: Task) => {
-        await saveTask({ ...task, isCompleted: !task.isCompleted });
-    };
-
-
-    return (
-        <div>
-            <h1 className="text-3xl font-bold text-dark dark:text-light mb-6">Dashboard</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <StatCard title="Today's Revenue" value={`${settings.currencySymbol}${todayStats.revenue.toFixed(2)}`} icon={icons.trendingUp} />
-                <StatCard title="Today's Transactions" value={todayStats.transactions} icon={icons.sales} />
-                <StatCard title="Total Profit (All-time)" value={`${settings.currencySymbol}${totalProfit.toFixed(2)}`} icon={icons.dollar} />
-                <StatCard title="Low Stock Alerts" value={lowStockProducts.length} icon={icons.bell} />
-                <div className="md:col-span-2">
-                    <StatCard title="Best Selling Product" value={bestSellingProduct} icon={icons.trophy} />
-                </div>
-                <StatCard title="Inventory Value (Cost)" value={`${settings.currencySymbol}${inventoryValueCost.toFixed(2)}`} icon={icons.inventory} />
-                <StatCard title="Total Revenue (All-time)" value={`${settings.currencySymbol}${totalRevenue.toFixed(2)}`} icon={icons.dollar} />
-            </div>
-            
-            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md mb-8">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
-                    <h2 className="text-xl font-semibold dark:text-light mb-2 sm:mb-0">Sales Overview</h2>
-                    <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
-                        <button onClick={() => setSalesOverviewDays(7)} className={`px-3 py-1 text-sm rounded-md transition-all ${salesOverviewDays === 7 ? 'bg-white dark:bg-dark-card shadow font-semibold text-primary' : 'text-gray-600 dark:text-gray-300'}`}>7 Days</button>
-                        <button onClick={() => setSalesOverviewDays(30)} className={`px-3 py-1 text-sm rounded-md transition-all ${salesOverviewDays === 30 ? 'bg-white dark:bg-dark-card shadow font-semibold text-primary' : 'text-gray-600 dark:text-gray-300'}`}>30 Days</button>
-                    </div>
-                </div>
-                <div className="h-64 flex items-end justify-around gap-1 sm:gap-2 border-b border-l border-gray-200 dark:border-gray-700 p-2">
-                    {salesOverviewData.chartData.map((day, index) => (
-                        <div key={index} className="flex-1 flex flex-col items-center justify-end group relative h-full">
-                            <div 
-                                className="w-full bg-primary/20 hover:bg-primary/40 rounded-t-md transition-colors"
-                                style={{ height: `${(day.total / salesOverviewData.maxSale) * 100}%` }}
-                            >
-                                <div className="absolute bottom-full mb-2 w-max px-2 py-1 bg-dark text-light text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-                                    {settings.currencySymbol}{day.total.toFixed(2)}
-                                </div>
-                            </div>
-                            <span className="text-xs text-gray-500 dark:text-gray-400 mt-2 whitespace-nowrap">{day.date}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                 <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                     <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                        <h2 className="text-xl font-semibold mb-4 dark:text-light">Low Stock Items</h2>
-                        {lowStockProducts.length > 0 ? (
-                            <ul className="space-y-2 max-h-60 overflow-y-auto">
-                            {lowStockProducts.map(p => (
-                                <li key={p.id} className="flex justify-between items-center text-sm p-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 text-dark dark:text-light">
-                                    <span>{p.name} ({p.sku})</span>
-                                    <span className="font-bold text-red-600 dark:text-red-400">{p.totalStock} left</span>
-                                </li>
-                            ))}
-                        </ul>
-                        ) : (
-                            <p className="text-gray-500 dark:text-gray-400">No items are low on stock.</p>
-                        )}
-                    </div>
-                     <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                        <h2 className="text-xl font-semibold mb-4 dark:text-light">Expiring Soon & Expired Items ({expiringProducts.length})</h2>
-                         {expiringProducts.length > 0 ? (
-                            <ul className="space-y-2 max-h-60 overflow-y-auto">
-                            {expiringProducts.map(item => {
-                                const status = item.expiryStatus;
-                                return (
-                                    <li key={item.id} className={`flex justify-between items-center text-sm p-2 rounded-md border ${status.days < 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-500/30' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-500/30'} text-dark dark:text-light`}>
-                                        <span>{item.productName} ({item.quantity} units)</span>
-                                        <span className={`font-bold ${status.className}`}>{status.text}</span>
-                                    </li>
-                                )
-                            })}
-                        </ul>
-                        ) : (
-                            <p className="text-gray-500 dark:text-gray-400">No items are expiring soon.</p>
-                        )}
-                    </div>
-                </div>
-                 <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold mb-4 dark:text-light">Upcoming & Overdue Tasks</h2>
-                    {upcomingTasks.length > 0 ? (
-                        <ul className="space-y-3 max-h-[15rem] overflow-y-auto">
-                            {upcomingTasks.map(task => {
-                                const dueDate = new Date(task.dueDate);
-                                const today = new Date();
-                                today.setHours(0,0,0,0);
-                                const diffTime = dueDate.getTime() - today.getTime();
-                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                                let dateText, dateClass;
-                                if (diffDays < 0) {
-                                    dateText = `Overdue by ${Math.abs(diffDays)} day(s)`;
-                                    dateClass = 'text-red-500';
-                                } else if (diffDays === 0) {
-                                    dateText = `Due today`;
-                                    dateClass = 'text-amber-500';
-                                } else {
-                                    dateText = `Due in ${diffDays} day(s)`;
-                                    dateClass = 'text-gray-500 dark:text-gray-400';
-                                }
-
-                                return (
-                                    <li key={task.id} className="flex items-start gap-3">
-                                        <input
-                                            type="checkbox"
-                                            checked={task.isCompleted}
-                                            onChange={() => handleToggleTask(task)}
-                                            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                        />
-                                        <div className="flex-grow">
-                                            <p className="font-medium text-dark dark:text-light">{task.title}</p>
-                                            <p className={`text-sm ${dateClass}`}>{dateText}</p>
-                                        </div>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    ) : (
-                        <p className="text-gray-500 dark:text-gray-400">No pending tasks.</p>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const PaymentModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onConfirm: (paymentMethod: PaymentMethod) => void;
-    total: number;
-    currencySymbol: string;
-}> = ({ isOpen, onClose, onConfirm, total, currencySymbol }) => {
-    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
-    const [amountTendered, setAmountTendered] = useState<string>('');
-    
-    useEffect(() => {
-        if (isOpen) {
-            setAmountTendered('');
-            setPaymentMethod(PaymentMethod.CASH);
-        }
-    }, [isOpen]);
-
-    const tendered = parseFloat(amountTendered) || 0;
-    const changeDue = tendered > total ? tendered - total : 0;
-    const canConfirm = paymentMethod === PaymentMethod.CARD || (paymentMethod === PaymentMethod.CASH && tendered >= total);
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Payment">
-            <div className="space-y-4">
-                <div className="text-center">
-                    <p className="text-gray-500 dark:text-gray-400">Total Amount Due</p>
-                    <p className="text-4xl font-bold text-dark dark:text-light">{currencySymbol}{total.toFixed(2)}</p>
-                </div>
-                
-                <div className="flex justify-center gap-2">
-                    <button 
-                        onClick={() => setPaymentMethod(PaymentMethod.CASH)}
-                        className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${paymentMethod === PaymentMethod.CASH ? 'border-primary bg-primary/10 text-primary' : 'dark:border-gray-600'}`}>
-                        {icons.cash} Cash
-                    </button>
-                    <button 
-                        onClick={() => setPaymentMethod(PaymentMethod.CARD)}
-                        className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${paymentMethod === PaymentMethod.CARD ? 'border-primary bg-primary/10 text-primary' : 'dark:border-gray-600'}`}>
-                        {icons.card} Card
-                    </button>
-                </div>
-
-                {paymentMethod === PaymentMethod.CASH && (
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount Tendered</label>
-                        <input
-                            type="number"
-                            value={amountTendered}
-                            onChange={e => setAmountTendered(e.target.value)}
-                            placeholder="0.00"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-lg focus:outline-none focus:ring-primary focus:border-primary dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-                        />
-                        {tendered > 0 && (
-                            <div className="mt-2 text-right">
-                                <span className="text-sm text-gray-500 dark:text-gray-400">Change Due: </span>
-                                <span className="font-bold text-green-600 dark:text-green-400">{currencySymbol}{changeDue.toFixed(2)}</span>
-                            </div>
-                        )}
-                    </div>
-                )}
-                
-                <div className="pt-4">
-                    <button
-                        onClick={() => onConfirm(paymentMethod)}
-                        disabled={!canConfirm}
-                        className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-opacity-90 transition disabled:bg-gray-400 dark:disabled:bg-gray-600"
-                    >
-                        Confirm Payment
-                    </button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
-
-const POSPage: React.FC = () => {
-    const { productsWithStock, addSale, settings } = useStore();
-    const { user } = useAuth();
-    const [cart, setCart] = useState<CartItem[]>([]);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [receipt, setReceipt] = useState<Sale | null>(null);
-    const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
-    const [discountValue, setDiscountValue] = useState<string>('');
-    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-    const [isScannerOpen, setIsScannerOpen] = useState(false);
-
-    const filteredProducts = useMemo(() => {
-        return productsWithStock.filter(p => {
-            const hasNonExpiredStock = p.batches.some(b => !b.expiryDate || new Date(b.expiryDate) >= new Date());
-            return (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                    p.sku.toLowerCase().includes(searchTerm.toLowerCase())) && p.totalStock > 0 && hasNonExpiredStock;
-        });
-    }, [productsWithStock, searchTerm]);
-
-    const addToCart = (product: ProductWithStock) => {
-        setCart(prevCart => {
-            const existingItem = prevCart.find(item => item.id === product.id);
-            if (existingItem) {
-                if(existingItem.quantity < product.totalStock) {
-                   return prevCart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-                }
-                return prevCart;
-            }
-            return [...prevCart, { ...product, quantity: 1 }];
-        });
-    };
-    
-    const removeFromCart = (productId: string) => {
-        setCart(prevCart => prevCart.filter(item => item.id !== productId));
-    };
-    
-    const updateQuantity = (productId: string, quantity: number) => {
-        const product = productsWithStock.find(p => p.id === productId);
-        if (!product) return;
-
-        if (quantity <= 0) {
-            removeFromCart(productId);
-        } else {
-            const newQuantity = Math.min(quantity, product.totalStock);
-            setCart(prevCart => prevCart.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
-        }
-    };
-    
-    const subtotal = useMemo(() => cart.reduce((total, item) => total + item.price * item.quantity, 0), [cart]);
-
-    const { discountAmount, finalTotal } = useMemo(() => {
-        const numericDiscountValue = parseFloat(discountValue) || 0;
-        let calculatedDiscount = 0;
-
-        if (numericDiscountValue > 0 && subtotal > 0) {
-            if (discountType === 'percentage') {
-                calculatedDiscount = subtotal * (numericDiscountValue / 100);
-            } else { // fixed
-                calculatedDiscount = numericDiscountValue;
-            }
-        }
-
-        calculatedDiscount = Math.min(calculatedDiscount, subtotal);
-        const total = subtotal - calculatedDiscount;
-
-        return { discountAmount: calculatedDiscount, finalTotal: total };
-    }, [subtotal, discountType, discountValue]);
-
-
-    const handleProceedToPayment = () => {
-        if (cart.length === 0) return;
-        setIsPaymentModalOpen(true);
-    };
-
-    const handleConfirmPayment = async (paymentMethod: PaymentMethod) => {
-        if (cart.length === 0 || !user) return;
-        const numericDiscountValue = parseFloat(discountValue) || 0;
-        
-        const newSale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'> = {
-            items: cart,
-            subtotal: subtotal,
-            ...(numericDiscountValue > 0 && {
-                discountType: discountType,
-                discountValue: numericDiscountValue,
-                discountAmount: discountAmount,
-            }),
-            total: finalTotal,
-            timestamp: new Date().toISOString(),
-            cashierId: user.id,
-            cashierName: user.name,
-            paymentMethod: paymentMethod,
-        };
-        const savedSale = await addSale(newSale);
-        
-        setIsPaymentModalOpen(false);
-        setReceipt(savedSale);
-        setCart([]);
-        setDiscountValue('');
-    };
-
-    const handlePrint = () => { window.print(); }
-
-    const handleBarcodeScanSuccess = (decodedText: string) => {
-        setIsScannerOpen(false);
-        const product = productsWithStock.find(p => p.sku.toLowerCase() === decodedText.toLowerCase());
-        if (product) {
-            const hasNonExpiredStock = product.batches.some(b => !b.expiryDate || new Date(b.expiryDate) >= new Date());
-            if (!hasNonExpiredStock) {
-                alert(`Cannot add to cart: All stock for "${product.name}" is expired.`);
-                return;
-            }
-            if (product.totalStock > 0) {
-                addToCart(product);
-            } else {
-                alert(`Cannot add to cart: The product "${product.name}" is out of stock.`);
-            }
-        } else {
-            alert(`Product with barcode/SKU "${decodedText}" not found.`);
-        }
-    };
-    
-    if (receipt) {
-        return <Receipt receipt={receipt} onNewSale={() => setReceipt(null)} onPrint={handlePrint} settings={settings} />
+    const pageNumbers = [];
+    for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i);
     }
 
     return (
-        <>
-            <div className="flex flex-col lg:flex-row gap-6 lg:h-[calc(100vh-100px)]">
-                {/* Product List */}
-                <div className="lg:w-2/3 bg-white dark:bg-dark-card rounded-xl shadow-md p-4 flex flex-col">
-                    <div className="flex flex-col sm:flex-row gap-2 mb-4">
-                        <div className="relative flex-grow">
-                            <input 
-                                type="text" 
-                                placeholder="Search products by name or SKU..."
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border dark:border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-primary bg-transparent dark:text-white"
-                            />
-                            <div className="absolute top-0 left-0 pl-3 pt-2.5">{icons.search}</div>
-                        </div>
-                        <button
-                            onClick={() => setIsScannerOpen(true)}
-                            className="flex-shrink-0 flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-full hover:bg-opacity-90 text-sm"
-                        >
-                            {icons.barcode}
-                            Scan
-                        </button>
-                    </div>
-                    <div className="flex-grow overflow-y-auto pr-2">
-                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {filteredProducts.map(product => (
-                                <button key={product.id} onClick={() => addToCart(product)} className="border dark:border-gray-700 rounded-lg p-3 text-left hover:border-primary hover:shadow-lg transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed dark:hover:border-primary" disabled={product.totalStock <= (cart.find(item => item.id === product.id)?.quantity ?? 0)}>
-                                    <h3 className="font-bold truncate dark:text-light">{product.name}</h3>
-                                    <p className="text-gray-500 dark:text-gray-400">{product.sku}</p>
-                                    <p className="font-semibold text-primary dark:text-accent mt-1">{settings.currencySymbol}{product.price.toFixed(2)}</p>
-                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{product.totalStock} in stock</p>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Cart/Checkout Panel */}
-                <div className="lg:w-1/3 bg-white dark:bg-dark-card rounded-xl shadow-md p-4 flex flex-col">
-                    <h2 className="text-2xl font-bold mb-4 dark:text-light">Cart</h2>
-                    <div className="flex-grow overflow-y-auto -mr-2 pr-2">
-                       {cart.length === 0 ? (
-                           <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
-                                {icons.pos}
-                                <p className="mt-2">Cart is empty</p>
-                           </div>
-                       ) : (
-                        <div className="space-y-3">
-                            {cart.map(item => (
-                                <div key={item.id} className="flex items-center gap-3">
-                                    <div className="flex-grow">
-                                        <p className="font-semibold dark:text-light truncate">{item.name}</p>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">{settings.currencySymbol}{item.price.toFixed(2)}</p>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="p-1 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600">{icons.minus}</button>
-                                        <input type="number" value={item.quantity} onChange={(e) => updateQuantity(item.id, parseInt(e.target.value))} className="w-12 text-center border-none bg-transparent dark:text-white" />
-                                        <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="p-1 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600">{icons.plus}</button>
-                                    </div>
-                                    <p className="font-bold w-20 text-right dark:text-light">{settings.currencySymbol}{(item.price * item.quantity).toFixed(2)}</p>
-                                    <button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700">{icons.trash}</button>
-                                </div>
-                            ))}
-                        </div>
-                       )}
-                    </div>
-                    <div className="border-t dark:border-gray-700 mt-4 pt-4 space-y-3">
-                        <div className="flex justify-between text-lg">
-                            <span className="text-gray-600 dark:text-gray-300">Subtotal</span>
-                            <span className="font-bold dark:text-light">{settings.currencySymbol}{subtotal.toFixed(2)}</span>
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <select value={discountType} onChange={(e) => setDiscountType(e.target.value as any)} className="bg-gray-100 dark:bg-gray-800 border-none rounded-lg text-sm h-10">
-                                <option value="percentage">%</option>
-                                <option value="fixed">{settings.currencySymbol}</option>
-                            </select>
-                            <input type="number" placeholder="Discount" value={discountValue} onChange={e => setDiscountValue(e.target.value)} className="w-full bg-gray-100 dark:bg-gray-800 border-none rounded-lg h-10 px-3 dark:text-white" />
-                        </div>
-                        {discountAmount > 0 && (
-                             <div className="flex justify-between text-md">
-                                <span className="text-gray-600 dark:text-gray-300">Discount</span>
-                                <span className="font-semibold text-green-600 dark:text-green-400">-{settings.currencySymbol}{discountAmount.toFixed(2)}</span>
-                            </div>
-                        )}
-                        <div className="flex justify-between text-2xl font-bold border-t dark:border-gray-700 pt-3 mt-3">
-                            <span className="dark:text-light">Total</span>
-                            <span className="text-primary dark:text-accent">{settings.currencySymbol}{finalTotal.toFixed(2)}</span>
-                        </div>
-                        <button onClick={handleProceedToPayment} disabled={cart.length === 0} className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-opacity-90 transition disabled:bg-gray-400 dark:disabled:bg-gray-600">
-                            Proceed to Payment
-                        </button>
-                    </div>
-                </div>
+        <nav className="flex items-center justify-between mt-4">
+            <div className="text-sm text-gray-700 dark:text-gray-400">
+                Page {currentPage} of {totalPages}
             </div>
-            <PaymentModal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} onConfirm={handleConfirmPayment} total={finalTotal} currencySymbol={settings.currencySymbol} />
-            <BarcodeScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScanSuccess={handleBarcodeScanSuccess} />
-        </>
-    );
-};
-
-const Receipt: React.FC<{ receipt: Sale; onNewSale: () => void; onPrint: () => void; settings: AppSettings; }> = ({ receipt, onNewSale, onPrint, settings }) => {
-    const qrCodeRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        if(qrCodeRef.current) {
-            qrCodeRef.current.innerHTML = '';
-            QRCode.toCanvas(qrCodeRef.current, `Sale ID: ${receipt.id}, Total: ${settings.currencySymbol}${receipt.total.toFixed(2)}`, { width: 80 }, (error: any) => {
-                if (error) console.error(error)
-            })
-        }
-    }, [receipt, settings]);
-
-    return (
-        <div className="max-w-md mx-auto bg-white dark:bg-dark-card p-6 rounded-lg shadow-lg">
-             <style>{`
-                @media print {
-                    body * { visibility: hidden; }
-                    #receipt-section, #receipt-section * { visibility: visible; }
-                    #receipt-section { position: absolute; left: 0; top: 0; width: 100%; }
-                    .no-print { display: none; }
-                }
-            `}</style>
-            <div id="receipt-section">
-                <div className="text-center mb-6">
-                    <h1 className="text-2xl font-bold dark:text-light">{settings.appName}</h1>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">Sale Receipt</p>
-                </div>
-                <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300 mb-4">
-                    <span>Sale ID: {receipt.id}</span>
-                    <span>{new Date(receipt.timestamp).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300 mb-4">
-                     <span>Cashier: {receipt.cashierName}</span>
-                </div>
-                <div className="border-t border-b border-dashed border-gray-300 dark:border-gray-600 py-2 my-2 space-y-2">
-                    {receipt.items.map(item => (
-                        <div key={item.id} className="flex justify-between text-sm">
-                            <div className="flex-grow pr-2">
-                                <p className="dark:text-light">{item.name}</p>
-                                <p className="text-gray-500 dark:text-gray-400 text-xs">{item.quantity} x {settings.currencySymbol}{item.price.toFixed(2)}</p>
-                            </div>
-                            <span className="dark:text-light">{settings.currencySymbol}{(item.quantity * item.price).toFixed(2)}</span>
-                        </div>
-                    ))}
-                </div>
-                <div className="space-y-1 text-sm mt-4">
-                    <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                        <span>Subtotal</span>
-                        <span>{settings.currencySymbol}{receipt.subtotal.toFixed(2)}</span>
-                    </div>
-                    {receipt.discountAmount && receipt.discountAmount > 0 && (
-                         <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                            <span>Discount ({receipt.discountType === 'percentage' ? `${receipt.discountValue}%` : `${settings.currencySymbol}${receipt.discountValue}`})</span>
-                            <span>-{settings.currencySymbol}{receipt.discountAmount.toFixed(2)}</span>
-                        </div>
-                    )}
-                     <div className="flex justify-between font-bold text-lg border-t border-gray-300 dark:border-gray-600 pt-2 mt-2 dark:text-light">
-                        <span>Total</span>
-                        <span>{settings.currencySymbol}{receipt.total.toFixed(2)}</span>
-                    </div>
-                     <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                        <span>Payment Method</span>
-                        <span>{receipt.paymentMethod}</span>
-                    </div>
-                </div>
-                <div className="flex flex-col items-center mt-6 text-center">
-                    <div ref={qrCodeRef} className="mb-2"></div>
-                    <p className="text-gray-500 dark:text-gray-400 text-xs">Thank you for your purchase!</p>
-                </div>
-            </div>
-            <div className="flex justify-center gap-4 mt-6 no-print">
-                <button onClick={onNewSale} className="px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">
-                    New Sale
+            <div className="flex">
+                <button
+                    onClick={() => onPageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white dark:bg-dark-card text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                    Previous
                 </button>
-                <button onClick={onPrint} className="flex items-center gap-2 px-6 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">
-                    {icons.print} Print
+                {/* Simplified pagination for now */}
+                <button
+                    onClick={() => onPageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white dark:bg-dark-card text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                    Next
                 </button>
             </div>
-        </div>
+        </nav>
     );
 };
 
-// --- GENERIC MANAGEMENT PAGE LAYOUT --- //
-const ManagementPage: React.FC<{
-    title: string;
-    addBtnLabel?: string;
-    onAdd?: () => void;
-    searchTerm: string;
-    onSearch: (term: string) => void;
-    children: ReactNode;
-    extraButtons?: ReactNode;
-}> = ({ title, addBtnLabel, onAdd, searchTerm, onSearch, children, extraButtons }) => {
-    return (
-        <div className="bg-white dark:bg-dark-card rounded-xl shadow-md p-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-                <h1 className="text-3xl font-bold text-dark dark:text-light mb-4 sm:mb-0">{title}</h1>
-                <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-2">
-                    <div className="relative flex-grow">
-                        <input
-                            type="text"
-                            placeholder="Search..."
-                            value={searchTerm}
-                            onChange={e => onSearch(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-transparent dark:text-white"
-                        />
-                        <div className="absolute top-0 left-0 pl-3 pt-2.5">{icons.search}</div>
-                    </div>
-                    {extraButtons}
-                    {onAdd && addBtnLabel && (
-                        <button
-                            onClick={onAdd}
-                            className="flex-shrink-0 flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 text-sm"
-                        >
-                            {icons.plus} {addBtnLabel}
-                        </button>
-                    )}
-                </div>
-            </div>
-            {children}
-        </div>
-    );
-};
+// --- AUTH COMPONENTS --- //
+const LoginPage: React.FC = () => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const { login, settings } = useStore();
 
-// --- Product Management --- //
-const ProductModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    product: Product | null;
-    prefilledSku?: string;
-}> = ({ isOpen, onClose, product, prefilledSku }) => {
-    const { saveProduct, categories } = useStore();
-    const [formData, setFormData] = useState<Partial<Product>>({});
-
-    useEffect(() => {
-        if (isOpen) {
-            if (product) {
-                setFormData(product);
-            } else {
-                 setFormData({ 
-                    sku: prefilledSku || '',
-                    name: '',
-                    price: 0,
-                    cost: 0,
-                    category: categories[0]?.name || '',
-                    lowStockThreshold: 10,
-                    manufacturer: '',
-                    description: ''
-                });
-            }
-        }
-    }, [isOpen, product, prefilledSku, categories]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const productToSave = {
-            ...formData,
-            id: formData.id || `prod-${Date.now()}`,
-            price: parseFloat(String(formData.price || 0)),
-            cost: parseFloat(String(formData.cost || 0)),
-            lowStockThreshold: parseInt(String(formData.lowStockThreshold || 0)),
-        } as Product;
-        await saveProduct(productToSave);
-        onClose();
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={product ? 'Edit Product' : 'Add Product'} maxWidth="max-w-2xl">
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">SKU / Barcode *</label>
-                        <input type="text" name="sku" value={formData.sku || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Product Name *</label>
-                        <input type="text" name="name" value={formData.name || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                    </div>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium">Description</label>
-                    <textarea name="description" value={formData.description || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} rows={3}></textarea>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">Manufacturer</label>
-                        <input type="text" name="manufacturer" value={formData.manufacturer || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Category *</label>
-                        <select name="category" value={formData.category || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required>
-                           {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">Price *</label>
-                        <input type="number" name="price" step="0.01" value={formData.price || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                    </div>
-                     <div>
-                        <label className="block text-sm font-medium">Cost</label>
-                        <input type="number" name="cost" step="0.01" value={formData.cost || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
-                    </div>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium">Low Stock Threshold *</label>
-                    <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                <div className="pt-4 flex justify-end gap-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">{product ? 'Save Changes' : 'Add Product'}</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const ProductManagementPage: React.FC = () => {
-    const { productsWithStock, deleteProduct } = useStore();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-    const [isScannerOpen, setIsScannerOpen] = useState(false);
-    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-    const [prefilledSku, setPrefilledSku] = useState<string | undefined>(undefined);
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const filteredProducts = useMemo(() => {
-        return productsWithStock.filter(p => 
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.category.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [productsWithStock, searchTerm]);
-    
-    const { items: sortedProducts, requestSort, sortConfig } = useSort(filteredProducts, { key: 'name', direction: 'asc' });
-
-    const openAddModal = () => {
-        setSelectedProduct(null);
-        setPrefilledSku(undefined);
-        setIsModalOpen(true);
-    };
-
-    const openEditModal = (product: Product) => {
-        setSelectedProduct(product);
-        setPrefilledSku(undefined);
-        setIsModalOpen(true);
-    };
-    
-    const openDeleteConfirm = (product: Product) => {
-        setSelectedProduct(product);
-        setIsConfirmOpen(true);
-    };
-
-    const handleDelete = async () => {
-        if (selectedProduct) {
-            await deleteProduct(selectedProduct.id);
-            setIsConfirmOpen(false);
-            setSelectedProduct(null);
-        }
-    };
-
-    const handleBarcodeScanSuccessForAdd = (decodedText: string) => {
-        const existingProduct = productsWithStock.find(p => p.sku.toLowerCase() === decodedText.toLowerCase());
-        if (existingProduct) {
-            openEditModal(existingProduct);
+        setError('');
+        if (login(username, password)) {
+            // Login successful, the StoreProvider will handle the redirect
         } else {
-            setSelectedProduct(null);
-            setPrefilledSku(decodedText);
-            setIsModalOpen(true);
+            setError('Invalid username or password');
         }
     };
 
     return (
-        <>
-            <ManagementPage
-                title="Products"
-                addBtnLabel="Add Product"
-                onAdd={openAddModal}
-                searchTerm={searchTerm}
-                onSearch={setSearchTerm}
-                extraButtons={
-                    <button
-                        onClick={() => setIsScannerOpen(true)}
-                        className="flex-shrink-0 flex items-center justify-center gap-2 bg-secondary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 text-sm"
-                    >
-                        {icons.barcode} Scan to Add
-                    </button>
-                }
-            >
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                            <tr>
-                                <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="SKU" sortKey="sku" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Category" sortKey="category" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Price" sortKey="price" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <SortableHeader label="Cost" sortKey="cost" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <SortableHeader label="Total Stock" sortKey="totalStock" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <th className="px-4 py-3">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedProducts.map(p => (
-                                <tr key={p.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{p.name}</td>
-                                    <td className="px-4 py-3">{p.sku}</td>
-                                    <td className="px-4 py-3">{p.category}</td>
-                                    <td className="px-4 py-3 text-right">{p.price.toFixed(2)}</td>
-                                    <td className="px-4 py-3 text-right">{p.cost?.toFixed(2) || 'N/A'}</td>
-                                    <td className={`px-4 py-3 text-right font-bold ${p.totalStock <= p.lowStockThreshold ? 'text-red-500' : ''}`}>{p.totalStock}</td>
-                                    <td className="px-4 py-3 flex gap-2">
-                                        <button onClick={() => openEditModal(p)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</button>
-                                        <button onClick={() => openDeleteConfirm(p)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+        <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-dark-bg">
+            <div className="max-w-md w-full bg-white dark:bg-dark-card shadow-md rounded-lg p-8">
+                <div className="text-center mb-6">
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-white">{settings.appName}</h1>
+                    <p className="text-gray-500 dark:text-gray-400">Please sign in to your account</p>
                 </div>
-            </ManagementPage>
-            <ProductModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} product={selectedProduct} prefilledSku={prefilledSku} />
-            <ConfirmationModal 
-                isOpen={isConfirmOpen} 
-                onClose={() => setIsConfirmOpen(false)}
-                onConfirm={handleDelete}
-                title="Delete Product"
-            >
-                Are you sure you want to delete the product "{selectedProduct?.name}"? This will also remove all its inventory records and cannot be undone.
-            </ConfirmationModal>
-            <BarcodeScannerModal
-                isOpen={isScannerOpen}
-                onClose={() => setIsScannerOpen(false)}
-                onScanSuccess={handleBarcodeScanSuccessForAdd}
-            />
-        </>
-    );
-};
-
-// --- Inventory Management --- //
-const InventoryManagementPage: React.FC = () => {
-    const { inventory, products } = useStore();
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const inventoryWithProductInfo = useMemo(() => {
-        return inventory.map(item => {
-            const product = products.find(p => p.id === item.productId);
-            return {
-                ...item,
-                productName: product?.name || 'N/A',
-                productSku: product?.sku || 'N/A',
-            }
-        });
-    }, [inventory, products]);
-
-    const filteredInventory = useMemo(() => {
-        return inventoryWithProductInfo.filter(item => 
-            item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.productSku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.supplierName?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [inventoryWithProductInfo, searchTerm]);
-
-    const { items: sortedInventory, requestSort, sortConfig } = useSort(filteredInventory, { key: 'addedDate', direction: 'desc' });
-    
-    return (
-        <ManagementPage
-            title="Inventory Batches"
-            searchTerm={searchTerm}
-            onSearch={setSearchTerm}
-            extraButtons={
-                <a href="#/receive-stock" className="flex-shrink-0 flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 text-sm">
-                    {icons.plus} Receive Stock
-                </a>
-            }
-        >
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                        <tr>
-                            <SortableHeader label="Product" sortKey="productName" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="SKU" sortKey="productSku" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Batch No." sortKey="batchNumber" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Quantity" sortKey="quantity" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                            <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Added Date" sortKey="addedDate" sortConfig={sortConfig} requestSort={requestSort} />
-                            <th className="px-4 py-3">Expiry Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sortedInventory.map(item => {
-                             const expiryStatus = getExpiryStatus(item.expiryDate);
-                             return (
-                                <tr key={item.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{item.productName}</td>
-                                    <td className="px-4 py-3">{item.productSku}</td>
-                                    <td className="px-4 py-3">{item.batchNumber}</td>
-                                    <td className="px-4 py-3 text-right">{item.quantity}</td>
-                                    <td className="px-4 py-3">{item.supplierName || 'N/A'}</td>
-                                    <td className="px-4 py-3">{new Date(item.addedDate).toLocaleDateString()}</td>
-                                    <td className={`px-4 py-3 ${expiryStatus.className}`}>{expiryStatus.text}</td>
-                                </tr>
-                             )
-                        })}
-                    </tbody>
-                </table>
-            </div>
-        </ManagementPage>
-    );
-};
-
-const ReceiveStockPage: React.FC = () => {
-    const { products, suppliers, purchaseOrders, receiveStockAndUpdatePO, addAuditLog } = useStore();
-    const { user } = useAuth();
-    const [selectedProductId, setSelectedProductId] = useState<string>('');
-    const [quantity, setQuantity] = useState('');
-    const [batchNumber, setBatchNumber] = useState('');
-    const [expiryDate, setExpiryDate] = useState('');
-    const [supplierId, setSupplierId] = useState<string>('');
-    const [purchaseOrderId, setPurchaseOrderId] = useState<string>('');
-
-    const openPurchaseOrders = useMemo(() => {
-        return purchaseOrders.filter(po => 
-            po.status === PurchaseOrderStatus.SUBMITTED || 
-            po.status === PurchaseOrderStatus.SHIPPED ||
-            po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED
-        );
-    }, [purchaseOrders]);
-    
-    // When a PO is selected, filter products to only those on the PO
-    const availableProducts = useMemo(() => {
-        if (purchaseOrderId) {
-            const po = openPurchaseOrders.find(p => p.id === purchaseOrderId);
-            if (po) {
-                const productIdsInPO = po.items.map(item => item.productId);
-                return products.filter(p => productIdsInPO.includes(p.id));
-            }
-        }
-        return products;
-    }, [products, purchaseOrderId, openPurchaseOrders]);
-
-    // When a PO and Product are selected, update the supplier
-    useEffect(() => {
-        if (purchaseOrderId) {
-            const po = openPurchaseOrders.find(p => p.id === purchaseOrderId);
-            if (po) {
-                setSupplierId(po.supplierId);
-            }
-        }
-    }, [purchaseOrderId, openPurchaseOrders]);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!selectedProductId || !quantity || !batchNumber || !user) {
-            alert('Please fill all required fields.');
-            return;
-        }
-
-        const product = products.find(p => p.id === selectedProductId);
-        const supplier = suppliers.find(s => s.id === supplierId);
-        if (!product) {
-            alert('Selected product not found.');
-            return;
-        }
-
-        const newItem: InventoryItem = {
-            id: `inv-${Date.now()}`,
-            productId: selectedProductId,
-            quantity: parseInt(quantity),
-            batchNumber,
-            expiryDate: expiryDate || undefined,
-            addedDate: new Date().toISOString(),
-            supplierId: supplierId || undefined,
-            supplierName: supplier?.name || undefined,
-            purchaseOrderId: purchaseOrderId || undefined,
-        };
-
-        await receiveStockAndUpdatePO(newItem);
-        
-        await addAuditLog({
-            timestamp: new Date().toISOString(),
-            userId: user.id,
-            userName: user.name,
-            productId: product.id,
-            productName: product.name,
-            quantityChange: newItem.quantity,
-            newTotalStock: (products.find(p => p.id === selectedProductId)?.lowStockThreshold || 0) + newItem.quantity, // NOTE: this is a simplification, a real app would recalculate total stock
-            reason: `Stock received. Batch: ${batchNumber}.`,
-        });
-
-        alert('Stock received successfully!');
-        // Reset form
-        setSelectedProductId('');
-        setQuantity('');
-        setBatchNumber('');
-        setExpiryDate('');
-        setSupplierId('');
-        setPurchaseOrderId('');
-    };
-
-    return (
-        <div className="max-w-4xl mx-auto">
-            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                 <div className="flex items-center gap-4 mb-6">
-                    <a href="#/inventory" className="text-primary hover:text-opacity-80 dark:text-accent dark:hover:text-opacity-80">{icons.arrowLeft}</a>
-                    <h1 className="text-3xl font-bold text-dark dark:text-light">Receive Stock</h1>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <div>
-                        <label className="block text-sm font-medium">From Purchase Order (Optional)</label>
-                        <select value={purchaseOrderId} onChange={(e) => {
-                            setPurchaseOrderId(e.target.value);
-                            setSelectedProductId(''); // Reset product selection when PO changes
-                        }} className={INPUT_FIELD_CLASSES}>
-                            <option value="">Select a PO</option>
-                            {openPurchaseOrders.map(po => (
-                                <option key={po.id} value={po.id}>{po.poNumber} - {po.supplierName}</option>
-                            ))}
-                        </select>
+                <form onSubmit={handleSubmit}>
+                    {error && <p className="text-red-500 text-sm text-center mb-4">{error}</p>}
+                    <div className="mb-4">
+                        <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2" htmlFor="username">
+                            Username
+                        </label>
+                        <input
+                            id="username"
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 dark:text-white dark:bg-gray-700 dark:border-gray-600 leading-tight focus:outline-none focus:shadow-outline"
+                            autoComplete="username"
+                            required
+                        />
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium">Product *</label>
-                            <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} className={INPUT_FIELD_CLASSES} required>
-                                <option value="">Select a product</option>
-                                {availableProducts.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                            </select>
-                        </div>
-                        <div>
-                             <label className="block text-sm font-medium">Quantity *</label>
-                            <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className={INPUT_FIELD_CLASSES} required />
-                        </div>
+                    <div className="mb-6">
+                        <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2" htmlFor="password">
+                            Password
+                        </label>
+                        <input
+                            id="password"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 dark:text-white dark:bg-gray-700 dark:border-gray-600 mb-3 leading-tight focus:outline-none focus:shadow-outline"
+                            autoComplete="current-password"
+                            required
+                        />
                     </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                             <label className="block text-sm font-medium">Batch Number *</label>
-                            <input type="text" value={batchNumber} onChange={e => setBatchNumber(e.target.value)} className={INPUT_FIELD_CLASSES} required />
-                        </div>
-                        <div>
-                             <label className="block text-sm font-medium">Expiry Date</label>
-                            <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className={INPUT_FIELD_CLASSES} />
-                        </div>
-                    </div>
-                     <div>
-                        <label className="block text-sm font-medium">Supplier</label>
-                        <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className={INPUT_FIELD_CLASSES} disabled={!!purchaseOrderId}>
-                            <option value="">Select a supplier</option>
-                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
-
-                    <div className="pt-4 flex justify-end">
-                        <button type="submit" className="px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">
-                            Add to Inventory
+                    <div className="flex items-center justify-between">
+                        <button
+                            type="submit"
+                            className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                        >
+                            Sign In
                         </button>
                     </div>
                 </form>
@@ -1667,287 +620,1638 @@ const ReceiveStockPage: React.FC = () => {
     );
 };
 
-const SalesHistoryPage: React.FC = () => {
-    const { sales, settings, users } = useStore();
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+const ProtectedRoute: React.FC<{ children: ReactNode; allowedRoles: UserRole[] }> = ({ children, allowedRoles }) => {
+    const { currentUser } = useStore();
+    const router = useRouter();
 
-    const filteredSales = useMemo(() => {
-        return sales.filter(s => 
-            s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.cashierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.items.some(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    if (!currentUser) {
+        router.navigate('login');
+        return null;
+    }
+
+    if (!allowedRoles.includes(currentUser.role)) {
+        return (
+            <div className="p-8 text-center text-red-500">
+                <h1 className="text-2xl font-bold">Access Denied</h1>
+                <p>You do not have permission to view this page.</p>
+            </div>
         );
-    }, [sales, searchTerm]);
-    
-    const { items: sortedSales, requestSort, sortConfig } = useSort(filteredSales, { key: 'timestamp', direction: 'desc' });
-    
+    }
+
+    return <>{children}</>;
+};
+
+// --- LAYOUT COMPONENTS --- //
+
+const Header: React.FC<{ onToggleSidebar: () => void }> = ({ onToggleSidebar }) => {
+    const { currentUser, logout, settings } = useStore();
+    const [theme, setTheme] = useDarkMode();
+
     return (
-        <>
-            <ManagementPage
-                title="Sales History"
-                searchTerm={searchTerm}
-                onSearch={setSearchTerm}
-            >
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                            <tr>
-                                <SortableHeader label="Sale ID" sortKey="id" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Date" sortKey="timestamp" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Cashier" sortKey="cashierName" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Total" sortKey="total" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <SortableHeader label="Profit" sortKey="totalProfit" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <th className="px-4 py-3 text-center">Status</th>
-                                <th className="px-4 py-3 text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedSales.map(sale => {
-                                const status = getSaleStatus(sale);
-                                return (
-                                <tr key={sale.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{sale.id}</td>
-                                    <td className="px-4 py-3">{new Date(sale.timestamp).toLocaleString()}</td>
-                                    <td className="px-4 py-3">{sale.cashierName}</td>
-                                    <td className="px-4 py-3 text-right">{settings.currencySymbol}{sale.total.toFixed(2)}</td>
-                                    <td className="px-4 py-3 text-right">{settings.currencySymbol}{(sale.totalProfit || 0).toFixed(2)}</td>
-                                    <td className="px-4 py-3 text-center">
-                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${status.className}`}>
-                                            {status.text}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-center flex justify-center items-center gap-2">
-                                        <button onClick={() => setSelectedSale(sale)} className="text-blue-600 hover:underline text-xs">View</button>
-                                        {status.text !== 'Refunded' && (
-                                            <a href={`#/refund/${sale.id}`} className="flex items-center gap-1 text-primary dark:text-accent hover:underline text-xs">
-                                                {icons.refund} Refund
-                                            </a>
-                                        )}
-                                    </td>
-                                </tr>
-                            )})}
-                        </tbody>
-                    </table>
+        <header className="bg-white dark:bg-dark-card shadow-sm p-4 flex justify-between items-center">
+             <div className="flex items-center">
+                 <button onClick={onToggleSidebar} className="text-gray-500 dark:text-gray-400 mr-4 lg:hidden">
+                    {icons.hamburger}
+                </button>
+                <h1 className="text-xl font-semibold text-gray-800 dark:text-white">{settings.appName}</h1>
+            </div>
+            <div className="flex items-center space-x-4">
+                <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="text-gray-600 dark:text-gray-300">
+                    {theme === 'light' ? icons.moon : icons.sun}
+                </button>
+                
+                <NotificationPopover />
+
+                <div className="relative">
+                    <span className="text-gray-800 dark:text-white">{currentUser?.name}</span>
                 </div>
-            </ManagementPage>
-             <Modal isOpen={!!selectedSale} onClose={() => setSelectedSale(null)} title={`Sale Details: ${selectedSale?.id}`} maxWidth="max-w-2xl">
-                {selectedSale && <Receipt receipt={selectedSale} onNewSale={() => setSelectedSale(null)} onPrint={() => window.print()} settings={settings} />}
-            </Modal>
-        </>
+                 <button onClick={logout} className="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-secondary">
+                   {icons.logout}
+                </button>
+            </div>
+        </header>
     );
 };
 
-const RefundReceipt: React.FC<{ receipt: Refund; onDone: () => void; settings: AppSettings; originalSale: Sale; }> = ({ receipt, onDone, settings, originalSale }) => {
-    return (
-        <div className="max-w-md mx-auto bg-white dark:bg-dark-card p-6 rounded-lg shadow-lg">
-            <div className="text-center mb-6">
-                <h1 className="text-2xl font-bold dark:text-light">Refund Receipt</h1>
-                <p className="text-gray-500 dark:text-gray-400 text-sm">Original Sale ID: {receipt.originalSaleId}</p>
-            </div>
-            <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300 mb-4">
-                <span>Refund ID: {receipt.id}</span>
-                <span>{new Date(receipt.timestamp).toLocaleString()}</span>
-            </div>
-            <div className="border-t border-b border-dashed border-gray-300 dark:border-gray-600 py-2 my-2 space-y-2">
-                <h3 className="font-semibold text-sm dark:text-light">Refunded Items:</h3>
-                {receipt.items.map(item => (
-                    <div key={item.id} className="flex justify-between text-sm">
-                        <div>
-                            <p className="dark:text-light">{item.name}</p>
-                            <p className="text-gray-500 dark:text-gray-400 text-xs">{item.quantity} x {settings.currencySymbol}{item.price.toFixed(2)}</p>
-                        </div>
-                        <span className="dark:text-light">-{settings.currencySymbol}{(item.quantity * item.price).toFixed(2)}</span>
-                    </div>
-                ))}
-            </div>
-            <div className="space-y-1 text-sm mt-4">
-                 <div className="flex justify-between font-bold text-lg border-t border-gray-300 dark:border-gray-600 pt-2 mt-2 dark:text-light">
-                    <span>Total Refunded</span>
-                    <span>-{settings.currencySymbol}{receipt.totalRefundAmount.toFixed(2)}</span>
-                </div>
-                 <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                    <span>Reason</span>
-                    <span>{receipt.reason}</span>
-                </div>
-                 <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                    <span>Items returned to stock</span>
-                    <span>{receipt.returnedToStock ? 'Yes' : 'No'}</span>
-                </div>
-                 <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                    <span>Processed By</span>
-                    <span>{receipt.processedByName}</span>
-                </div>
-            </div>
-             <div className="flex justify-center gap-4 mt-6">
-                <button onClick={onDone} className="px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">
-                    Done
-                </button>
-            </div>
-        </div>
-    )
-};
+const NotificationPopover: React.FC = () => {
+    const { notifications, actions } = useStore();
+    const router = useRouter();
+    const [isOpen, setIsOpen] = useState(false);
+    const popoverRef = useRef<HTMLDivElement>(null);
 
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+    
+    const handleToggle = () => setIsOpen(prev => !prev);
 
-const RefundPage: React.FC = () => {
-    const { sales, refunds, addRefund, settings } = useStore();
-    const { user } = useAuth();
-    const [saleToRefund, setSaleToRefund] = useState<Sale | null>(null);
-    const [refundQuantities, setRefundQuantities] = useState<{[key: string]: number}>({});
-    const [reason, setReason] = useState('');
-    const [returnToStock, setReturnToStock] = useState(true);
-    const [refundReceipt, setRefundReceipt] = useState<Refund | null>(null);
+    const handleNotificationClick = (notification: Notification) => {
+        if (!notification.isRead) {
+            actions.markNotificationsAsRead([notification.id]);
+        }
+        router.navigate(notification.link.replace('#', ''));
+        setIsOpen(false);
+    };
+    
+    const markAllAsRead = () => {
+        const unreadIds = notifications.filter(n => !n.isRead).map(n => n.id);
+        if (unreadIds.length > 0) {
+            actions.markNotificationsAsRead(unreadIds);
+        }
+    };
     
     useEffect(() => {
-        const hash = window.location.hash;
-        const saleId = hash.split('/')[2];
-        if (saleId) {
-            const sale = sales.find(s => s.id === saleId);
-            setSaleToRefund(sale || null);
+        const handleClickOutside = (event: MouseEvent) => {
+            if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const getNotificationIcon = (type: NotificationType) => {
+        switch(type) {
+            case NotificationType.PO_SHIPPED: return <span className="text-blue-500">{icons.purchaseOrder}</span>;
+            case NotificationType.PO_RECEIVED: return <span className="text-green-500">{icons.inventory}</span>;
+            case NotificationType.PO_OVERDUE: return <span className="text-red-500">{icons.calendar}</span>;
+            default: return <span className="text-gray-500">{icons.bell}</span>;
         }
-    }, [sales]);
+    };
 
-    const alreadyRefundedQuantities = useMemo(() => {
-        const quantities: {[key: string]: number} = {};
-        if (!saleToRefund) return quantities;
+    return (
+        <div className="relative" ref={popoverRef}>
+            <button onClick={handleToggle} className="relative text-gray-600 dark:text-gray-300">
+                {icons.bell}
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-white text-xs items-center justify-center">{unreadCount}</span>
+                    </span>
+                )}
+            </button>
+            {isOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-dark-card rounded-md shadow-lg z-20">
+                    <div className="py-2 px-4 border-b dark:border-gray-700 flex justify-between items-center">
+                        <h3 className="font-semibold text-gray-800 dark:text-white">Notifications</h3>
+                        {unreadCount > 0 && <button onClick={markAllAsRead} className="text-sm text-primary hover:underline">Mark all as read</button>}
+                    </div>
+                    <div className="max-h-96 overflow-y-auto">
+                        {notifications.length > 0 ? (
+                            notifications.map(notification => (
+                                <div key={notification.id} onClick={() => handleNotificationClick(notification)}
+                                    className={`flex items-start p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer ${!notification.isRead ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                                >
+                                    <div className="flex-shrink-0 mr-3">{getNotificationIcon(notification.type)}</div>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{notification.title}</p>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">{notification.message}</p>
+                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{new Date(notification.timestamp).toLocaleString()}</p>
+                                    </div>
+                                    {!notification.isRead && <div className="w-2 h-2 bg-blue-500 rounded-full self-center ml-2"></div>}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center py-4 text-gray-500 dark:text-gray-400">No new notifications</div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
-        const relatedRefunds = refunds.filter(r => r.originalSaleId === saleToRefund.id);
-        
-        saleToRefund.items.forEach(saleItem => {
-            quantities[saleItem.id] = 0;
-            relatedRefunds.forEach(refund => {
-                const refundedItem = refund.items.find(i => i.id === saleItem.id);
-                if (refundedItem) {
-                    quantities[saleItem.id] += refundedItem.quantity;
+const Sidebar: React.FC<{ isOpen: boolean; onLinkClick: () => void }> = ({ isOpen, onLinkClick }) => {
+    const { currentUser } = useStore();
+    const router = useRouter();
+    
+    const navLinks = [
+        { name: 'Dashboard', path: '#dashboard', icon: icons.dashboard, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'POS', path: '#pos', icon: icons.pos, roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
+        { name: 'Sales History', path: '#sales', icon: icons.sales, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Inventory', path: '#inventory', icon: icons.inventory, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Receive Stock', path: '#receive-stock', icon: icons.plus, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Products', path: '#products', icon: icons.products, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Categories', path: '#categories', icon: icons.category, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Suppliers', path: '#suppliers', icon: icons.suppliers, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Purchase Orders', path: '#purchase-orders', icon: icons.purchaseOrder, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Users', path: '#users', icon: icons.users, roles: [UserRole.SUPER_ADMIN] },
+        { name: 'Settings', path: '#settings', icon: icons.settings, roles: [UserRole.SUPER_ADMIN] },
+    ];
+
+    return (
+        <aside className={`bg-primary dark:bg-dark-card text-white w-64 space-y-2 py-4 flex flex-col fixed inset-y-0 left-0 z-40 lg:relative lg:translate-x-0 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-200 ease-in-out`}>
+           <div className="px-4 mb-4">
+                <h2 className="text-2xl font-bold text-white flex items-center">{icons.dashboard} <span className="ml-2">Pharmacy POS</span></h2>
+            </div>
+            <nav className="flex-1 px-2 space-y-1">
+                {navLinks.filter(link => link.roles.includes(currentUser!.role)).map(link => (
+                    <a
+                        key={link.name}
+                        href={link.path}
+                        onClick={onLinkClick}
+                        className={`flex items-center space-x-3 px-3 py-2 rounded-md text-base font-medium ${router.page === link.path.substring(1).split('/')[0] ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                    >
+                        {link.icon}
+                        <span>{link.name}</span>
+                    </a>
+                ))}
+            </nav>
+        </aside>
+    );
+};
+
+// --- PAGE COMPONENTS --- //
+const DashboardPage: React.FC = () => {
+    const { sales, products, inventory, tasks, actions, getters, currentUser } = useStore();
+    const [filter, setFilter] = useState('today');
+
+    const filteredSales = useMemo(() => {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const thisWeekStart = new Date(today);
+        thisWeekStart.setDate(today.getDate() - today.getDay());
+        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        return sales.filter(sale => {
+            const saleDate = new Date(sale.timestamp);
+            if (filter === 'today') return saleDate >= today;
+            if (filter === 'week') return saleDate >= thisWeekStart;
+            if (filter === 'month') return saleDate >= thisMonthStart;
+            return true;
+        });
+    }, [sales, filter]);
+
+    const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
+    const totalProfit = filteredSales.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0);
+    const totalSales = filteredSales.length;
+
+    const lowStockProducts = useMemo(() => {
+        return products.filter(p => getters.getTotalStock(p.id) < p.lowStockThreshold);
+    }, [products, getters]);
+    
+    const expiredProductsCount = useMemo(() => {
+        const today = new Date().toISOString().split('T')[0];
+        return inventory.filter(i => i.expiryDate && i.expiryDate < today).length;
+    }, [inventory]);
+
+    const topSellingProducts = useMemo(() => {
+        const productSales = new Map<string, { name: string; quantity: number; revenue: number }>();
+        filteredSales.forEach(sale => {
+            sale.items.forEach(item => {
+                const existing = productSales.get(item.id);
+                if (existing) {
+                    productSales.set(item.id, {
+                        ...existing,
+                        quantity: existing.quantity + item.quantity,
+                        revenue: existing.revenue + item.price * item.quantity
+                    });
+                } else {
+                    productSales.set(item.id, {
+                        name: item.name,
+                        quantity: item.quantity,
+                        revenue: item.price * item.quantity
+                    });
                 }
             });
         });
-        return quantities;
-    }, [saleToRefund, refunds]);
+        return Array.from(productSales.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    }, [filteredSales]);
+    
+    const salesChartData = useMemo(() => {
+        const data: { [key: string]: number } = {};
+        const now = new Date();
 
-    const handleQuantityChange = (itemId: string, newQuantity: number, maxQuantity: number) => {
-        setRefundQuantities(prev => ({
-            ...prev,
-            [itemId]: Math.max(0, Math.min(newQuantity, maxQuantity))
-        }));
+        if (filter === 'today') {
+            for (let i = 0; i < 24; i++) { data[String(i).padStart(2, '0') + ':00'] = 0; }
+            filteredSales.forEach(sale => {
+                const hour = new Date(sale.timestamp).getHours();
+                const key = String(hour).padStart(2, '0') + ':00';
+                data[key] = (data[key] || 0) + sale.total;
+            });
+        } else if (filter === 'week') {
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            days.forEach(day => data[day] = 0);
+            filteredSales.forEach(sale => {
+                const day = days[new Date(sale.timestamp).getDay()];
+                data[day] = (data[day] || 0) + sale.total;
+            });
+        } else if (filter === 'month') {
+             const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+             for (let i = 1; i <= daysInMonth; i++) { data[`Day ${i}`] = 0; }
+             filteredSales.forEach(sale => {
+                const day = `Day ${new Date(sale.timestamp).getDate()}`;
+                data[day] = (data[day] || 0) + sale.total;
+             });
+        }
+        
+        return {
+            labels: Object.keys(data),
+            datasets: [{
+                label: 'Revenue',
+                data: Object.values(data),
+                backgroundColor: 'rgba(0, 122, 122, 0.2)',
+                borderColor: 'rgba(0, 122, 122, 1)',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true,
+            }]
+        };
+    }, [filteredSales, filter]);
+
+    const StatCard: React.FC<{ title: string; value: string | number; icon: ReactNode; color: string }> = ({ title, value, icon, color }) => (
+        <div className="bg-white dark:bg-dark-card p-6 rounded-lg shadow flex items-center">
+            <div className={`p-3 rounded-full mr-4 ${color}`}>
+                {icon}
+            </div>
+            <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+                <p className="text-2xl font-bold text-gray-800 dark:text-white">{value}</p>
+            </div>
+        </div>
+    );
+
+    const SalesChart: React.FC<{ data: any }> = ({ data }) => {
+        const canvasRef = useRef<HTMLCanvasElement>(null);
+        // Chart.js would be imported and used here. For now, a placeholder:
+        useEffect(() => {
+            // A real implementation would use a library like Chart.js
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    // Simple bar chart drawing
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    const barWidth = canvas.width / (data.labels.length * 2);
+                    const maxVal = Math.max(...data.datasets[0].data, 1);
+                    ctx.fillStyle = '#007A7A';
+                    data.datasets[0].data.forEach((val: number, i: number) => {
+                        const barHeight = (val / maxVal) * (canvas.height - 20);
+                        ctx.fillRect(i * barWidth * 1.5 + barWidth / 2, canvas.height - barHeight - 10, barWidth, barHeight);
+                        ctx.fillStyle = '#333';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(data.labels[i], i * barWidth * 1.5 + barWidth, canvas.height, barWidth);
+                    });
+                }
+            }
+        }, [data]);
+        
+        return (
+            <div className="bg-white dark:bg-dark-card p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">Sales Overview</h3>
+                <canvas ref={canvasRef} height="200"></canvas>
+            </div>
+        );
     };
 
-    const { itemsToRefund, totalRefundAmount, totalRefundCost } = useMemo(() => {
-        if (!saleToRefund) return { itemsToRefund: [], totalRefundAmount: 0, totalRefundCost: 0 };
-        
-        const items = Object.entries(refundQuantities)
-            .map(([itemId, quantity]) => {
-                if (quantity > 0) {
-                    const originalItem = saleToRefund.items.find(i => i.id === itemId);
-                    return originalItem ? { ...originalItem, quantity } : null;
+    const TaskItem: React.FC<{ task: Task }> = ({ task }) => {
+        const handleToggle = () => {
+            actions.saveTask({ ...task, isCompleted: !task.isCompleted });
+        };
+        const isOverdue = !task.isCompleted && new Date(task.dueDate) < new Date();
+
+        return (
+            <div className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md">
+                <div className="flex items-center">
+                    <input type="checkbox" checked={task.isCompleted} onChange={handleToggle} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                    <div className="ml-3">
+                        <p className={`text-sm font-medium text-gray-900 dark:text-white ${task.isCompleted ? 'line-through text-gray-500 dark:text-gray-400' : ''}`}>
+                            {task.title}
+                        </p>
+                        {task.assignedToName && <p className="text-xs text-gray-500 dark:text-gray-400">Assigned to: {task.assignedToName}</p>}
+                    </div>
+                </div>
+                <div className={`text-sm ${isOverdue ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {new Date(task.dueDate).toLocaleDateString()}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8 space-y-6">
+            <div className="flex justify-between items-center">
+                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
+                <div>
+                    <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-white dark:bg-dark-card border border-gray-300 dark:border-gray-600 rounded-md shadow-sm p-2">
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                <StatCard title="Total Revenue" value={`$${totalRevenue.toFixed(2)}`} icon={icons.dollar} color="bg-green-100 text-green-600" />
+                <StatCard title="Total Profit" value={`$${totalProfit.toFixed(2)}`} icon={icons.trendingUp} color="bg-blue-100 text-blue-600" />
+                <StatCard title="Total Sales" value={totalSales} icon={icons.pos} color="bg-yellow-100 text-yellow-600" />
+                <StatCard title="Low Stock Items" value={lowStockProducts.length} icon={icons.inventory} color="bg-red-100 text-red-600" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                    <SalesChart data={salesChartData} />
+                </div>
+                <div className="bg-white dark:bg-dark-card p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">Quick Summary</h3>
+                    <div className="space-y-4">
+                       <div>
+                            <h4 className="font-semibold text-gray-700 dark:text-gray-300">Top Selling Products</h4>
+                            <ul className="mt-2 space-y-2">
+                                {topSellingProducts.map(p => (
+                                    <li key={p.name} className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
+                                        <span>{p.name}</span>
+                                        <span className="font-medium text-gray-800 dark:text-white">${p.revenue.toFixed(2)}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                         <div>
+                            <h4 className="font-semibold text-gray-700 dark:text-gray-300">Inventory Alerts</h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">{lowStockProducts.length} items running low on stock.</p>
+                            <p className="text-sm text-red-500">{expiredProductsCount} items have expired.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white dark:bg-dark-card p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">My Tasks</h3>
+                <div className="space-y-2">
+                    {tasks.filter(t => !t.isCompleted && (t.assignedToId === currentUser?.id || !t.assignedToId)).slice(0, 5).map(task => (
+                        <TaskItem key={task.id} task={task} />
+                    ))}
+                    {tasks.filter(t => !t.isCompleted).length === 0 && <p className="text-gray-500 dark:text-gray-400">No pending tasks. Great job!</p>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const POSPage: React.FC = () => {
+    const { products, getters, actions, currentUser, settings } = useStore();
+    const [cart, setCart] = useState<CartItem[]>([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+    const [showReceipt, setShowReceipt] = useState(false);
+    const [lastSale, setLastSale] = useState<Sale | null>(null);
+    const [isScanning, setIsScanning] = useState(false);
+    const scannerRef = useRef(null);
+
+    const filteredProducts = useMemo(() => {
+        if (!debouncedSearchTerm) return [];
+        return products.filter(p =>
+            p.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+            p.sku.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+        ).slice(0, 10);
+    }, [products, debouncedSearchTerm]);
+
+    const addToCart = (product: Product) => {
+        const existingItem = cart.find(item => item.id === product.id);
+        const stock = getters.getTotalStock(product.id);
+
+        if (existingItem) {
+            if (existingItem.quantity < stock) {
+                setCart(cart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
+            } else {
+                alert(`Cannot add more ${product.name}. Only ${stock} available in stock.`);
+            }
+        } else {
+            if (stock > 0) {
+                setCart([...cart, { ...product, quantity: 1 }]);
+            } else {
+                alert(`${product.name} is out of stock.`);
+            }
+        }
+    };
+    
+    const updateQuantity = (productId: string, quantity: number) => {
+        const stock = getters.getTotalStock(productId);
+        if (quantity > stock) {
+            alert(`Cannot set quantity to ${quantity}. Only ${stock} available.`);
+            quantity = stock;
+        }
+        if (quantity <= 0) {
+            setCart(cart.filter(item => item.id !== productId));
+        } else {
+            setCart(cart.map(item => item.id === productId ? { ...item, quantity } : item));
+        }
+    };
+
+    const removeFromCart = (productId: string) => {
+        setCart(cart.filter(item => item.id !== productId));
+    };
+
+    const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
+    
+    const handleCheckout = async () => {
+        if (cart.length === 0) return;
+        const sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'> = {
+            items: cart,
+            subtotal,
+            total: subtotal,
+            timestamp: new Date().toISOString(),
+            cashierId: currentUser!.id,
+            cashierName: currentUser!.name,
+            paymentMethod,
+        };
+        const newSale = await actions.addSale(sale);
+        setLastSale(newSale);
+        setShowReceipt(true);
+    };
+
+    const handleNewSale = () => {
+        setCart([]);
+        setShowReceipt(false);
+        setLastSale(null);
+        setSearchTerm('');
+    };
+    
+    const startScanner = () => {
+        setIsScanning(true);
+        setTimeout(() => {
+            const html5QrCode = new Html5Qrcode("barcode-scanner");
+            const qrCodeSuccessCallback = (decodedText: string, decodedResult: any) => {
+                const product = products.find(p => p.sku === decodedText);
+                if (product) {
+                    addToCart(product);
+                    setSearchTerm('');
+                } else {
+                    alert(`Product with SKU ${decodedText} not found.`);
                 }
-                return null;
-            })
-            .filter((item): item is CartItem => item !== null);
-        
-        const totalAmount = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const totalCost = items.reduce((sum, item) => sum + ((item.cost || 0) * item.quantity), 0);
+                html5QrCode.stop().then(() => setIsScanning(false)).catch((err:any) => console.log('stop err', err));
+            };
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback, undefined).catch((err: any) => {
+                console.error("Unable to start scanning.", err);
+                setIsScanning(false);
+            });
+            scannerRef.current = html5QrCode;
+        }, 100);
+    };
 
-        return { itemsToRefund: items, totalRefundAmount: totalAmount, totalRefundCost: totalCost };
-    }, [refundQuantities, saleToRefund]);
+    const stopScanner = () => {
+        if (scannerRef.current) {
+            (scannerRef.current as any).stop().then(() => setIsScanning(false)).catch((err: any) => console.error("Scanner stop failed", err));
+        } else {
+            setIsScanning(false);
+        }
+    };
+    
+    if (showReceipt && lastSale) {
+        return <SaleReceipt sale={lastSale} onNewSale={handleNewSale} settings={settings} />;
+    }
+    
+    return (
+        <div className="flex h-[calc(100vh-65px)]">
+            <div className="w-2/3 p-4 flex flex-col">
+                <div className="relative mb-4">
+                    <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by name or SKU..." />
+                    <button onClick={startScanner} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-gray-200 dark:bg-gray-600 rounded">
+                        {icons.barcode}
+                    </button>
+                    {filteredProducts.length > 0 && searchTerm && (
+                        <div className="absolute z-10 w-full bg-white dark:bg-dark-card shadow-lg rounded-md mt-1 max-h-60 overflow-y-auto">
+                            <ul>
+                                {filteredProducts.map(product => (
+                                    <li key={product.id} onClick={() => { addToCart(product); setSearchTerm(''); }}
+                                        className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center"
+                                    >
+                                        <div>
+                                            <p className="font-semibold text-gray-800 dark:text-white">{product.name}</p>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400">SKU: {product.sku} | Stock: {getters.getTotalStock(product.id)}</p>
+                                        </div>
+                                        <p className="font-semibold text-primary">{settings.currencySymbol}{product.price.toFixed(2)}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+                 {isScanning && (
+                    <Modal isOpen={isScanning} onClose={stopScanner} title="Scan Barcode">
+                        <div id="barcode-scanner" className="w-full"></div>
+                    </Modal>
+                )}
+                <div className="flex-1 overflow-y-auto bg-white dark:bg-dark-card p-4 rounded-lg shadow-inner">
+                    <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Current Sale</h2>
+                    {cart.length === 0 ? (
+                        <p className="text-gray-500 dark:text-gray-400">Cart is empty. Add products to get started.</p>
+                    ) : (
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b dark:border-gray-700">
+                                    <th className="text-left py-2 font-semibold text-gray-600 dark:text-gray-300">Product</th>
+                                    <th className="text-center py-2 font-semibold text-gray-600 dark:text-gray-300">Quantity</th>
+                                    <th className="text-right py-2 font-semibold text-gray-600 dark:text-gray-300">Price</th>
+                                    <th className="text-right py-2 font-semibold text-gray-600 dark:text-gray-300">Total</th>
+                                    <th className="py-2"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {cart.map(item => (
+                                    <tr key={item.id} className="border-b dark:border-gray-700">
+                                        <td className="py-3 text-gray-800 dark:text-white">{item.name}</td>
+                                        <td className="py-3">
+                                            <div className="flex items-center justify-center">
+                                                <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="p-1 rounded-full bg-gray-200 dark:bg-gray-600">{icons.minus}</button>
+                                                <input
+                                                    type="number"
+                                                    value={item.quantity}
+                                                    onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 1)}
+                                                    className="w-12 text-center mx-2 bg-transparent dark:text-white"
+                                                />
+                                                <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="p-1 rounded-full bg-gray-200 dark:bg-gray-600">{icons.plus}</button>
+                                            </div>
+                                        </td>
+                                        <td className="py-3 text-right text-gray-600 dark:text-gray-400">{settings.currencySymbol}{item.price.toFixed(2)}</td>
+                                        <td className="py-3 text-right font-semibold text-gray-800 dark:text-white">{settings.currencySymbol}{(item.price * item.quantity).toFixed(2)}</td>
+                                        <td className="py-3 text-right">
+                                            <button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700">{icons.trash}</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+            <div className="w-1/3 bg-gray-50 dark:bg-dark-card p-6 flex flex-col shadow-lg">
+                <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">Checkout</h2>
+                <div className="flex-1 space-y-4">
+                    <div className="flex justify-between text-lg">
+                        <span className="text-gray-600 dark:text-gray-300">Subtotal</span>
+                        <span className="font-semibold text-gray-800 dark:text-white">{settings.currencySymbol}{subtotal.toFixed(2)}</span>
+                    </div>
+                     <div className="flex justify-between text-lg">
+                        <span className="text-gray-600 dark:text-gray-300">Tax (0%)</span>
+                        <span className="font-semibold text-gray-800 dark:text-white">{settings.currencySymbol}0.00</span>
+                    </div>
+                    <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
+                    <div className="flex justify-between text-2xl font-bold">
+                        <span className="text-gray-800 dark:text-white">Total</span>
+                        <span className="text-primary">{settings.currencySymbol}{subtotal.toFixed(2)}</span>
+                    </div>
+                </div>
+                <div className="mt-6">
+                    <h3 className="font-semibold mb-3 text-gray-800 dark:text-white">Payment Method</h3>
+                    <div className="flex space-x-4">
+                        <button onClick={() => setPaymentMethod(PaymentMethod.CASH)} className={`flex-1 p-3 rounded-lg border-2 flex items-center justify-center space-x-2 ${paymentMethod === PaymentMethod.CASH ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-600'}`}>
+                            {icons.cash} <span className="dark:text-white">Cash</span>
+                        </button>
+                        <button onClick={() => setPaymentMethod(PaymentMethod.CARD)} className={`flex-1 p-3 rounded-lg border-2 flex items-center justify-center space-x-2 ${paymentMethod === PaymentMethod.CARD ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-600'}`}>
+                           {icons.card} <span className="dark:text-white">Card</span>
+                        </button>
+                    </div>
+                </div>
+                <button
+                    onClick={handleCheckout}
+                    disabled={cart.length === 0}
+                    className="w-full bg-primary text-white font-bold py-4 rounded-lg mt-8 text-lg hover:bg-primary/90 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                    Complete Payment
+                </button>
+            </div>
+        </div>
+    );
+};
 
-    const handleSubmitRefund = async () => {
-        if (!saleToRefund || !user || itemsToRefund.length === 0 || !reason) {
-            alert("Please select items to refund and provide a reason.");
+const SaleReceipt: React.FC<{ sale: Sale; onNewSale: () => void; settings: AppSettings; }> = ({ sale, onNewSale, settings }) => {
+    const receiptRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const canvas = document.getElementById('qrcode') as HTMLCanvasElement;
+        if (canvas && QRCode) {
+            QRCode.toCanvas(canvas, sale.id, function (error: any) {
+                if (error) console.error(error);
+            });
+        }
+    }, [sale.id]);
+
+    const handlePrint = () => {
+        const printContent = receiptRef.current?.innerHTML;
+        const printWindow = window.open('', '', 'height=600,width=800');
+        if (printWindow) {
+            printWindow.document.write('<html><head><title>Print Receipt</title>');
+            printWindow.document.write('<script src="https://cdn.tailwindcss.com"></script>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(printContent || '');
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.print();
+        }
+    };
+
+    return (
+        <div className="p-8 flex flex-col items-center bg-gray-100 dark:bg-dark-bg">
+            <div ref={receiptRef} className="bg-white dark:bg-dark-card shadow-lg rounded-lg p-8 w-full max-w-sm text-gray-800 dark:text-white">
+                <div className="text-center mb-6">
+                    <h1 className="text-2xl font-bold">{settings.appName}</h1>
+                    <p className="text-sm">Sale Receipt</p>
+                </div>
+                <div className="text-sm space-y-1 mb-4">
+                    <p><strong>Sale ID:</strong> {sale.id}</p>
+                    <p><strong>Date:</strong> {new Date(sale.timestamp).toLocaleString()}</p>
+                    <p><strong>Cashier:</strong> {sale.cashierName}</p>
+                </div>
+                <div className="border-t border-b border-dashed border-gray-300 dark:border-gray-600 py-4">
+                    {sale.items.map(item => (
+                        <div key={item.id} className="flex justify-between items-center text-sm mb-2">
+                            <div>
+                                <p className="font-semibold">{item.name}</p>
+                                <p className="text-gray-500 dark:text-gray-400">{item.quantity} x {settings.currencySymbol}{item.price.toFixed(2)}</p>
+                            </div>
+                            <p>{settings.currencySymbol}{(item.quantity * item.price).toFixed(2)}</p>
+                        </div>
+                    ))}
+                </div>
+                 <div className="py-4 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Subtotal:</span>
+                        <span>{settings.currencySymbol}{sale.subtotal.toFixed(2)}</span>
+                    </div>
+                    {sale.discountAmount && (
+                         <div className="flex justify-between">
+                            <span className="text-gray-600 dark:text-gray-400">Discount:</span>
+                            <span>-{settings.currencySymbol}{sale.discountAmount.toFixed(2)}</span>
+                        </div>
+                    )}
+                    <div className="flex justify-between font-bold text-base">
+                        <span>Total:</span>
+                        <span>{settings.currencySymbol}{sale.total.toFixed(2)}</span>
+                    </div>
+                     <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Payment Method:</span>
+                        <span>{sale.paymentMethod}</span>
+                    </div>
+                </div>
+                <div className="text-center mt-6">
+                    <canvas id="qrcode" className="mx-auto"></canvas>
+                    <p className="text-xs mt-2 text-gray-500 dark:text-gray-400">Thank you for your purchase!</p>
+                </div>
+            </div>
+            <div className="mt-8 flex space-x-4">
+                <button onClick={onNewSale} className="px-6 py-2 bg-primary text-white rounded-lg shadow hover:bg-primary/90">
+                    New Sale
+                </button>
+                 <button onClick={handlePrint} className="px-6 py-2 bg-gray-600 text-white rounded-lg shadow hover:bg-gray-700 flex items-center space-x-2">
+                    {icons.print} <span>Print</span>
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const SalesHistoryPage: React.FC = () => {
+    const { sales, settings, getters, refunds } = useStore();
+    const router = useRouter();
+    const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearch = useDebounce(searchTerm, 300);
+    const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+
+    const filteredSales = useMemo(() => {
+        return sales.filter(sale =>
+            sale.id.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            sale.cashierName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            sale.items.some(item => item.name.toLowerCase().includes(debouncedSearch.toLowerCase()))
+        );
+    }, [sales, debouncedSearch]);
+
+    const { sortedData: sortedSales, handleSort, renderSortArrow } = useSort(filteredSales, 'timestamp', 'desc');
+    
+    const getSaleStatus = (sale: Sale) => {
+        if (!sale.refundedAmount || sale.refundedAmount === 0) {
+            return <span className="text-green-500">Completed</span>;
+        }
+        if (sale.refundedAmount >= sale.total) {
+            return <span className="text-red-500">Refunded</span>;
+        }
+        return <span className="text-yellow-500">Part. Refunded</span>;
+    };
+
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">Sales History</h1>
+            <div className="mb-4">
+                <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by Sale ID, Cashier, or Product..." />
+            </div>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('timestamp')}>Date {renderSortArrow('timestamp')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('id')}>Sale ID {renderSortArrow('id')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('cashierName')}>Cashier {renderSortArrow('cashierName')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('total')}>Total {renderSortArrow('total')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('totalProfit')}>Profit {renderSortArrow('totalProfit')}</th>
+                            <th scope="col" className="px-6 py-3">Status</th>
+                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sortedSales.map(sale => (
+                            <tr key={sale.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-6 py-4">{new Date(sale.timestamp).toLocaleString()}</td>
+                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{sale.id}</td>
+                                <td className="px-6 py-4">{sale.cashierName}</td>
+                                <td className="px-6 py-4">{settings.currencySymbol}{sale.total.toFixed(2)}</td>
+                                <td className="px-6 py-4">{settings.currencySymbol}{(sale.totalProfit || 0).toFixed(2)}</td>
+                                <td className="px-6 py-4">{getSaleStatus(sale)}</td>
+                                <td className="px-6 py-4 text-right">
+                                    <button onClick={() => setSelectedSale(sale)} className="text-primary hover:underline mr-4">View</button>
+                                    <button onClick={() => router.navigate(`/refund/${sale.id}`)} className="text-accent hover:underline">Refund</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {selectedSale && (
+                <Modal isOpen={!!selectedSale} onClose={() => setSelectedSale(null)} title={`Sale Details: ${selectedSale.id}`} size="lg">
+                    <SaleReceipt sale={selectedSale} onNewSale={() => setSelectedSale(null)} settings={settings} />
+                </Modal>
+            )}
+        </div>
+    );
+};
+
+const InventoryManagementPage: React.FC = () => {
+    const { inventory, products, actions, currentUser, getters, fetchData } = useStore();
+    const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearch = useDebounce(searchTerm, 300);
+    const [view, setView] = useState<'summary' | 'batches'>('summary');
+    const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+    const [logReason, setLogReason] = useState('');
+    const [adjustment, setAdjustment] = useState(0);
+
+    const inventorySummary = useMemo(() => {
+        const summary = products.map(product => {
+            const batches = getters.getInventoryForProduct(product.id);
+            const totalStock = batches.reduce((sum, item) => sum + item.quantity, 0);
+            const expiringSoon = batches.some(item => item.expiryDate && new Date(item.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+            const expired = batches.some(item => item.expiryDate && new Date(item.expiryDate) < new Date());
+            return {
+                ...product,
+                totalStock,
+                expiringSoon,
+                expired,
+            };
+        });
+        return summary.filter(p =>
+            p.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            p.sku.toLowerCase().includes(debouncedSearch.toLowerCase())
+        );
+    }, [products, getters, debouncedSearch]);
+
+    const batchDetails = useMemo(() => {
+        return inventory.map(item => {
+            const product = getters.getProductById(item.productId);
+            return {
+                ...item,
+                productName: product?.name || 'N/A',
+                productSku: product?.sku || 'N/A',
+            };
+        }).filter(item =>
+            item.productName.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            item.productSku.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            item.batchNumber.toLowerCase().includes(debouncedSearch.toLowerCase())
+        );
+    }, [inventory, getters, debouncedSearch]);
+    
+    const handleAdjustStock = async () => {
+        if (!editingItem || !logReason || adjustment === 0) return;
+
+        const originalQuantity = editingItem.quantity;
+        const newQuantity = originalQuantity + adjustment;
+
+        if (newQuantity < 0) {
+            alert("Stock cannot be negative.");
             return;
         }
 
+        const updatedItem = { ...editingItem, quantity: newQuantity };
+        mockApi.saveInventoryItem(updatedItem); // Directly call mockApi to prevent re-fetch loop
+
+        await actions.addAuditLog({
+            timestamp: new Date().toISOString(),
+            userId: currentUser!.id,
+            userName: currentUser!.name,
+            productId: editingItem.productId,
+            productName: products.find(p => p.id === editingItem.productId)?.name || 'N/A',
+            quantityChange: adjustment,
+            newTotalStock: getters.getTotalStock(editingItem.productId) + adjustment,
+            reason: logReason,
+        });
+
+        // Manually update local state to avoid full re-fetch if not desired
+        fetchData('inventory');
+        setEditingItem(null);
+        setLogReason('');
+        setAdjustment(0);
+    };
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">Inventory Management</h1>
+            <div className="flex justify-between items-center mb-4">
+                <div className="w-1/3">
+                    <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search products or batches..." />
+                </div>
+                <div className="flex space-x-2 p-1 bg-gray-200 dark:bg-gray-700 rounded-lg">
+                    <button onClick={() => setView('summary')} className={`px-4 py-1 rounded-md text-sm font-medium ${view === 'summary' ? 'bg-white dark:bg-dark-card shadow' : ''}`}>Summary View</button>
+                    <button onClick={() => setView('batches')} className={`px-4 py-1 rounded-md text-sm font-medium ${view === 'batches' ? 'bg-white dark:bg-dark-card shadow' : ''}`}>Batch View</button>
+                </div>
+            </div>
+            
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                {view === 'summary' ? (
+                     <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <th scope="col" className="px-6 py-3">Product</th>
+                                <th scope="col" className="px-6 py-3">SKU</th>
+                                <th scope="col" className="px-6 py-3">Total Stock</th>
+                                <th scope="col" className="px-6 py-3">Low Stock Threshold</th>
+                                <th scope="col" className="px-6 py-3">Status</th>
+                            </tr>
+                        </thead>
+                         <tbody>
+                            {inventorySummary.map(p => {
+                                const isLowStock = p.totalStock < p.lowStockThreshold;
+                                return (
+                                <tr key={p.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{p.name}</td>
+                                    <td className="px-6 py-4">{p.sku}</td>
+                                    <td className={`px-6 py-4 font-bold ${isLowStock ? 'text-red-500' : 'text-gray-900 dark:text-white'}`}>{p.totalStock}</td>
+                                    <td className="px-6 py-4">{p.lowStockThreshold}</td>
+                                    <td className="px-6 py-4">
+                                        {isLowStock && <span className="text-xs font-medium mr-2 px-2.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">Low Stock</span>}
+                                        {p.expiringSoon && !p.expired && <span className="text-xs font-medium mr-2 px-2.5 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">Expiring Soon</span>}
+                                        {p.expired && <span className="text-xs font-medium mr-2 px-2.5 py-0.5 rounded bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300">Expired</span>}
+                                    </td>
+                                </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                ) : (
+                     <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                             <tr>
+                                <th scope="col" className="px-6 py-3">Product</th>
+                                <th scope="col" className="px-6 py-3">SKU</th>
+                                <th scope="col" className="px-6 py-3">Batch Number</th>
+                                <th scope="col" className="px-6 py-3">Quantity</th>
+                                <th scope="col" className="px-6 py-3">Expiry Date</th>
+                                <th scope="col" className="px-6 py-3">Added Date</th>
+                                <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {batchDetails.map(item => (
+                                <tr key={item.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{item.productName}</td>
+                                    <td className="px-6 py-4">{item.productSku}</td>
+                                    <td className="px-6 py-4">{item.batchNumber}</td>
+                                    <td className="px-6 py-4">{item.quantity}</td>
+                                    <td className="px-6 py-4">{item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : 'N/A'}</td>
+                                    <td className="px-6 py-4">{new Date(item.addedDate).toLocaleDateString()}</td>
+                                    <td className="px-6 py-4 text-right">
+                                        <button onClick={() => setEditingItem(item)} className="text-primary hover:underline">{icons.edit}</button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+            
+            {editingItem && (
+                 <Modal isOpen={!!editingItem} onClose={() => setEditingItem(null)} title={`Adjust Stock for ${products.find(p=>p.id === editingItem.productId)?.name} (Batch: ${editingItem.batchNumber})`}>
+                    <div className="space-y-4">
+                        <p>Current stock in this batch: <strong>{editingItem.quantity}</strong></p>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Adjustment</label>
+                            <input type="number" value={adjustment} onChange={e => setAdjustment(parseInt(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                            <p className="text-sm text-gray-500">Use positive numbers to add stock, negative to remove.</p>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason for Adjustment</label>
+                            <input type="text" value={logReason} onChange={e => setLogReason(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                        </div>
+                        <div className="text-right">
+                             <button onClick={handleAdjustStock} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">
+                                Apply Adjustment
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+        </div>
+    );
+};
+
+const ProductManagementPage: React.FC = () => {
+    const { products, categories, actions } = useStore();
+    const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearch = useDebounce(searchTerm, 300);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+    const filteredProducts = useMemo(() => {
+        return products.filter(p =>
+            p.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            p.sku.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            p.category.toLowerCase().includes(debouncedSearch.toLowerCase())
+        );
+    }, [products, debouncedSearch]);
+    
+    const { sortedData, handleSort, renderSortArrow } = useSort(filteredProducts, 'name');
+    
+    const openModal = (product: Product | null = null) => {
+        setEditingProduct(product);
+        setIsModalOpen(true);
+    };
+    
+    const closeModal = () => {
+        setEditingProduct(null);
+        setIsModalOpen(false);
+    };
+
+    const ProductForm: React.FC<{ product: Product | null, onSave: (product: Product) => void, onCancel: () => void }> = ({ product, onSave, onCancel }) => {
+        const [formData, setFormData] = useState<Product>(product || { id: '', sku: '', name: '', price: 0, cost: 0, category: '', lowStockThreshold: 10 });
+
+        const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: name === 'price' || name === 'cost' || name === 'lowStockThreshold' ? parseFloat(value) : value }));
+        };
+
+        const handleSubmit = (e: React.FormEvent) => {
+            e.preventDefault();
+            const productToSave: Product = { ...formData, id: formData.id || `prod-${Date.now()}` };
+            onSave(productToSave);
+        };
+
+        return (
+            <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Form fields */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">SKU</label>
+                        <input type="text" name="sku" value={formData.sku} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+                        <select name="category" value={formData.category} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600">
+                           <option value="">Select a category</option>
+                           {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                 <div className="grid grid-cols-3 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price</label>
+                        <input type="number" name="price" value={formData.price} onChange={handleChange} required min="0" step="0.01" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Cost</label>
+                        <input type="number" name="cost" value={formData.cost ?? ''} onChange={handleChange} min="0" step="0.01" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Low Stock Threshold</label>
+                        <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold} onChange={handleChange} required min="0" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                </div>
+                <div className="flex justify-end pt-4">
+                    <button type="button" onClick={onCancel} className="bg-white dark:bg-gray-600 py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-500">Cancel</button>
+                    <button type="submit" className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">Save Product</button>
+                </div>
+            </form>
+        )
+    };
+    
+    const handleSave = async (product: Product) => {
+        await actions.saveProduct(product);
+        closeModal();
+    };
+
+    const handleDelete = async (productId: string) => {
+        if (window.confirm("Are you sure you want to delete this product? This will also remove all associated inventory and cannot be undone.")) {
+            await actions.deleteProduct(productId);
+        }
+    };
+    
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Products</h1>
+                <button onClick={() => openModal()} className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary/90">
+                    Add Product
+                </button>
+            </div>
+             <div className="mb-4">
+                <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search products..." />
+            </div>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('name')}>Name {renderSortArrow('name')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('sku')}>SKU {renderSortArrow('sku')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('category')}>Category {renderSortArrow('category')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('price')}>Price {renderSortArrow('price')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('cost')}>Cost {renderSortArrow('cost')}</th>
+                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                         {sortedData.map(product => (
+                            <tr key={product.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{product.name}</td>
+                                <td className="px-6 py-4">{product.sku}</td>
+                                <td className="px-6 py-4">{product.category}</td>
+                                <td className="px-6 py-4">${product.price.toFixed(2)}</td>
+                                <td className="px-6 py-4">${product.cost?.toFixed(2) || 'N/A'}</td>
+                                <td className="px-6 py-4 text-right">
+                                    <button onClick={() => openModal(product)} className="text-primary hover:underline mr-4">{icons.edit}</button>
+                                    <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:text-red-700">{icons.trash}</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingProduct ? 'Edit Product' : 'Add New Product'} size="lg">
+                <ProductForm product={editingProduct} onSave={handleSave} onCancel={closeModal} />
+            </Modal>
+        </div>
+    );
+};
+
+const UserManagementPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">User Management</h1></div>; };
+const SuppliersManagementPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">Supplier Management</h1></div>; };
+const CategoriesManagementPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">Category Management</h1></div>; };
+const ReceiveStockPage: React.FC = () => {
+    const { products, suppliers, actions, purchaseOrders, getters, currentUser } = useStore();
+    const router = useRouter();
+    const [selectedProductId, setSelectedProductId] = useState('');
+    const [quantity, setQuantity] = useState('');
+    const [batchNumber, setBatchNumber] = useState('');
+    const [expiryDate, setExpiryDate] = useState('');
+    const [supplierId, setSupplierId] = useState('');
+    const [selectedPOId, setSelectedPOId] = useState('');
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedProductId || !quantity) return;
+        
+        const supplier = getters.getSupplierById(supplierId);
+
+        await actions.receiveStock({
+            productId: selectedProductId,
+            quantity: parseInt(quantity),
+            batchNumber,
+            expiryDate: expiryDate || undefined,
+            supplierId: supplierId || undefined,
+            supplierName: supplier?.name,
+            purchaseOrderId: selectedPOId || undefined,
+        });
+
+        await actions.addAuditLog({
+            timestamp: new Date().toISOString(),
+            userId: currentUser!.id,
+            userName: currentUser!.name,
+            productId: selectedProductId,
+            productName: getters.getProductById(selectedProductId)?.name || 'N/A',
+            quantityChange: parseInt(quantity),
+            newTotalStock: getters.getTotalStock(selectedProductId) + parseInt(quantity),
+            reason: `Stock received from ${supplier?.name || 'manual entry'}.`,
+        });
+
+        alert('Stock received successfully!');
+        router.navigate('/inventory');
+    };
+
+    const handlePOSelect = (poId: string) => {
+        setSelectedPOId(poId);
+        if (poId) {
+            const po = purchaseOrders.find(p => p.id === poId);
+            if (po) {
+                setSupplierId(po.supplierId);
+            }
+        } else {
+            setSupplierId('');
+            setSelectedProductId('');
+        }
+    };
+    
+    const openPOs = useMemo(() => {
+        return purchaseOrders.filter(po => po.status === PurchaseOrderStatus.SUBMITTED || po.status === PurchaseOrderStatus.SHIPPED || po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED);
+    }, [purchaseOrders]);
+    
+    const productsInSelectedPO = useMemo(() => {
+        if (!selectedPOId) return products;
+        const po = purchaseOrders.find(p => p.id === selectedPOId);
+        if (!po) return [];
+        const productIdsInPO = po.items.map(item => item.productId);
+        return products.filter(p => productIdsInPO.includes(p.id));
+    }, [selectedPOId, purchaseOrders, products]);
+    
+    return (
+        <div className="p-4 md:p-6 lg:p-8 max-w-2xl mx-auto">
+            <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">Receive Stock</h1>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg p-8">
+                <form onSubmit={handleSubmit} className="space-y-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From Purchase Order (Optional)</label>
+                        <select value={selectedPOId} onChange={e => handlePOSelect(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600">
+                            <option value="">Select a PO</option>
+                            {openPOs.map(po => <option key={po.id} value={po.id}>{po.poNumber} - {po.supplierName}</option>)}
+                        </select>
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Product</label>
+                        <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600">
+                            <option value="">Select a product</option>
+                            {productsInSelectedPO.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                        </select>
+                    </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
+                            <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} required min="1" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Batch Number</label>
+                            <input type="text" value={batchNumber} onChange={e => setBatchNumber(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                        </div>
+                    </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expiry Date (Optional)</label>
+                            <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+                            <select value={supplierId} onChange={e => setSupplierId(e.target.value)} disabled={!!selectedPOId} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600 disabled:bg-gray-200 dark:disabled:bg-gray-800">
+                                <option value="">Select a supplier</option>
+                                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                     <div className="pt-5">
+                        <div className="flex justify-end">
+                            <button type="submit" className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">
+                                Add to Inventory
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+const PurchaseOrdersManagementPage: React.FC = () => {
+    const { purchaseOrders } = useStore();
+    const router = useRouter();
+    const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearch = useDebounce(searchTerm, 300);
+
+    const filteredPOs = useMemo(() => {
+        if (!debouncedSearch) return purchaseOrders;
+        const lowercasedSearch = debouncedSearch.toLowerCase();
+        return purchaseOrders.filter(po => 
+            po.poNumber.toLowerCase().includes(lowercasedSearch) ||
+            po.supplierName.toLowerCase().includes(lowercasedSearch) ||
+            po.status.toLowerCase().includes(lowercasedSearch) ||
+            po.items.some(item => 
+                item.productName.toLowerCase().includes(lowercasedSearch) || 
+                item.productSku.toLowerCase().includes(lowercasedSearch)
+            )
+        );
+    }, [purchaseOrders, debouncedSearch]);
+    
+    const { sortedData, handleSort, renderSortArrow } = useSort(filteredPOs, 'createdAt', 'desc');
+
+    const getStatusColor = (status: PurchaseOrderStatus) => {
+        switch (status) {
+            case PurchaseOrderStatus.PENDING: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+            case PurchaseOrderStatus.SUBMITTED: return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+            case PurchaseOrderStatus.SHIPPED: return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300';
+            case PurchaseOrderStatus.PARTIALLY_RECEIVED: return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
+            case PurchaseOrderStatus.RECEIVED: return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+            case PurchaseOrderStatus.CANCELLED: return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    };
+    
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Purchase Orders</h1>
+                <button onClick={() => router.navigate('/purchase-orders/new')} className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary/90">
+                    Create New PO
+                </button>
+            </div>
+            <div className="mb-4">
+                <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by PO #, Supplier, Status, or Product..." />
+            </div>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('poNumber')}>PO Number {renderSortArrow('poNumber')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('createdAt')}>Created At {renderSortArrow('createdAt')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('expectedDeliveryDate')}>Expected Delivery {renderSortArrow('expectedDeliveryDate')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('supplierName')}>Supplier {renderSortArrow('supplierName')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('status')}>Status {renderSortArrow('status')}</th>
+                            <th scope="col" className="px-6 py-3 cursor-pointer" onClick={() => handleSort('total')}>Total {renderSortArrow('total')}</th>
+                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sortedData.map(po => (
+                            <tr key={po.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-6 py-4 font-medium text-primary hover:underline cursor-pointer" onClick={() => router.navigate(`/purchase-orders/${po.id}`)}>{po.poNumber}</td>
+                                <td className="px-6 py-4">{new Date(po.createdAt).toLocaleDateString()}</td>
+                                <td className="px-6 py-4">{po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString() : 'N/A'}</td>
+                                <td className="px-6 py-4">{po.supplierName}</td>
+                                <td className="px-6 py-4">
+                                    <span className={`text-xs font-medium mr-2 px-2.5 py-0.5 rounded ${getStatusColor(po.status)}`}>
+                                        {po.status}
+                                    </span>
+                                </td>
+                                <td className="px-6 py-4">${po.total.toFixed(2)}</td>
+                                <td className="px-6 py-4 text-right">
+                                    <button onClick={() => router.navigate(`/purchase-orders/${po.id}`)} className="text-primary hover:underline">View</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+const PurchaseOrderFormPage: React.FC = () => {
+    const { param: poId, navigate } = useRouter();
+    const { suppliers, products, getters, actions } = useStore();
+    const isNew = poId === 'new';
+    
+    const [poData, setPoData] = useState<Omit<PurchaseOrder, 'items'>>({
+        id: '', poNumber: '', supplierId: '', supplierName: '', status: PurchaseOrderStatus.PENDING,
+        createdAt: new Date().toISOString(), subtotal: 0, total: 0
+    });
+    const [items, setItems] = useState<PurchaseOrderItem[]>([]);
+    const [productSearch, setProductSearch] = useState('');
+    const debouncedProductSearch = useDebounce(productSearch, 300);
+
+    useEffect(() => {
+        if (!isNew && poId) {
+            const existingPO = getters.getPurchaseOrderById(poId);
+            if (existingPO) {
+                const { items, ...data } = existingPO;
+                setPoData(data);
+                setItems(items);
+            }
+        } else {
+            const newPoNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+            setPoData(prev => ({ ...prev, poNumber: newPoNumber, id: `po-${Date.now()}` }));
+        }
+    }, [poId, isNew, getters]);
+
+    useEffect(() => {
+        const subtotal = items.reduce((sum, item) => sum + item.cost * item.quantityOrdered, 0);
+        setPoData(prev => ({ ...prev, subtotal, total: subtotal }));
+    }, [items]);
+    
+    const handleSupplierChange = (supplierId: string) => {
+        const supplier = getters.getSupplierById(supplierId);
+        setPoData(prev => ({...prev, supplierId, supplierName: supplier?.name || ''}));
+    };
+
+    const handleAddItem = (product: Product) => {
+        if (!items.some(item => item.productId === product.id)) {
+            setItems(prev => [...prev, {
+                productId: product.id,
+                productName: product.name,
+                productSku: product.sku,
+                quantityOrdered: 1,
+                cost: product.cost || 0
+            }]);
+        }
+        setProductSearch('');
+    };
+
+    const handleItemChange = (productId: string, field: 'quantityOrdered' | 'cost', value: number) => {
+        setItems(prev => prev.map(item => item.productId === productId ? {...item, [field]: value} : item));
+    };
+
+    const handleRemoveItem = (productId: string) => {
+        setItems(prev => prev.filter(item => item.productId !== productId));
+    };
+
+    const handleSave = async (newStatus?: PurchaseOrderStatus) => {
+        let statusToSave = newStatus || poData.status;
+        let submittedAt;
+        if (newStatus === PurchaseOrderStatus.SUBMITTED && poData.status === PurchaseOrderStatus.PENDING) {
+            submittedAt = new Date().toISOString();
+        }
+
+        const finalPO: PurchaseOrder = {
+            ...poData,
+            items,
+            status: statusToSave,
+            ...(submittedAt && { submittedAt }),
+        };
+        await actions.savePurchaseOrder(finalPO);
+        navigate('/purchase-orders');
+    };
+
+    const searchResults = useMemo(() => {
+        if (!debouncedProductSearch) return [];
+        return products.filter(p => p.name.toLowerCase().includes(debouncedProductSearch.toLowerCase()) || p.sku.toLowerCase().includes(debouncedProductSearch.toLowerCase())).slice(0, 5);
+    }, [debouncedProductSearch, products]);
+    
+    const isEditable = poData.status === PurchaseOrderStatus.PENDING;
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+             <button onClick={() => navigate('/purchase-orders')} className="flex items-center text-primary mb-4 hover:underline">
+                {icons.arrowLeft}
+                <span className="ml-2">Back to Purchase Orders</span>
+            </button>
+            <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">{isNew ? 'Create Purchase Order' : `Edit Purchase Order ${poData.poNumber}`}</h1>
+            <div className="space-y-6">
+                <div className="bg-white dark:bg-dark-card shadow-md rounded-lg p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+                        <select value={poData.supplierId} onChange={e => handleSupplierChange(e.target.value)} disabled={!isEditable} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600 disabled:bg-gray-100 dark:disabled:bg-gray-800">
+                            <option value="">Select Supplier</option>
+                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expected Delivery Date</label>
+                         <input type="date" value={poData.expectedDeliveryDate?.split('T')[0] || ''} onChange={e => setPoData(prev => ({ ...prev, expectedDeliveryDate: e.target.value }))} disabled={!isEditable} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600 disabled:bg-gray-100 dark:disabled:bg-gray-800"/>
+                    </div>
+                    <div>
+                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                         <p className={`mt-1 text-sm font-semibold p-2 rounded-md ${isEditable ? 'text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-gray-700'}`}>{poData.status}</p>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-dark-card shadow-md rounded-lg p-6">
+                    <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Items</h2>
+                    {isEditable && (
+                        <div className="relative mb-4">
+                            <SearchBar value={productSearch} onChange={setProductSearch} placeholder="Search to add products..."/>
+                            {searchResults.length > 0 && (
+                                <div className="absolute z-10 w-full bg-white dark:bg-dark-card shadow-lg rounded-md mt-1 max-h-60 overflow-y-auto">
+                                    {searchResults.map(p => <div key={p.id} onClick={() => handleAddItem(p)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">{p.name} ({p.sku})</div>)}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                             <thead className="text-left text-gray-500 dark:text-gray-400">
+                                <tr>
+                                    <th className="py-2">Product</th><th className="py-2">Quantity</th><th className="py-2">Cost/Item</th><th className="py-2">Total</th><th className="py-2"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {items.map(item => (
+                                    <tr key={item.productId} className="border-t dark:border-gray-700">
+                                        <td className="py-2">{item.productName}</td>
+                                        <td><input type="number" value={item.quantityOrdered} onChange={e => handleItemChange(item.productId, 'quantityOrdered', parseInt(e.target.value))} min="1" disabled={!isEditable} className="w-20 rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-800 dark:border-gray-600"/></td>
+                                        <td><input type="number" value={item.cost} onChange={e => handleItemChange(item.productId, 'cost', parseFloat(e.target.value))} min="0" step="0.01" disabled={!isEditable} className="w-24 rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-800 dark:border-gray-600"/></td>
+                                        <td>${(item.quantityOrdered * item.cost).toFixed(2)}</td>
+                                        <td>{isEditable && <button onClick={() => handleRemoveItem(item.productId)} className="text-red-500">{icons.trash}</button>}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-dark-card shadow-md rounded-lg p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+                        <textarea value={poData.notes || ''} onChange={e => setPoData(prev => ({ ...prev, notes: e.target.value }))} rows={4} disabled={!isEditable} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600"/>
+                    </div>
+                    <div className="text-right space-y-2">
+                        <p className="text-lg">Subtotal: <span className="font-semibold">${poData.subtotal.toFixed(2)}</span></p>
+                        <p className="text-xl font-bold">Total: <span className="text-primary">${poData.total.toFixed(2)}</span></p>
+                    </div>
+                </div>
+                
+                {isEditable && (
+                    <div className="flex justify-end space-x-4">
+                        <button onClick={() => handleSave()} className="px-6 py-2 bg-gray-600 text-white rounded-lg shadow hover:bg-gray-700">Save Draft</button>
+                        <button onClick={() => handleSave(PurchaseOrderStatus.SUBMITTED)} className="px-6 py-2 bg-primary text-white rounded-lg shadow hover:bg-primary/90">Submit Order</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+const RefundPage: React.FC = () => {
+    const { param: saleId, navigate } = useRouter();
+    const { getters, actions, currentUser, refunds } = useStore();
+    const [sale, setSale] = useState<Sale | null>(null);
+    const [refundItems, setRefundItems] = useState<Map<string, number>>(new Map());
+    const [reason, setReason] = useState('');
+    const [returnToStock, setReturnToStock] = useState(true);
+
+    useEffect(() => {
+        if (saleId) {
+            const saleData = getters.getSaleById(saleId);
+            setSale(saleData || null);
+        }
+    }, [saleId, getters]);
+
+    const alreadyRefundedQuantities = useMemo(() => {
+        const quantities = new Map<string, number>();
+        if (!sale || !sale.refundIds) return quantities;
+        
+        const saleRefunds = refunds.filter(r => sale.refundIds!.includes(r.id));
+        saleRefunds.forEach(refund => {
+            refund.items.forEach(item => {
+                quantities.set(item.id, (quantities.get(item.id) || 0) + item.quantity);
+            });
+        });
+        return quantities;
+    }, [sale, refunds]);
+
+    const handleQuantityChange = (productId: string, quantity: number, maxQuantity: number) => {
+        const newQuantities = new Map(refundItems);
+        if (quantity > 0 && quantity <= maxQuantity) {
+            newQuantities.set(productId, quantity);
+        } else if (quantity <= 0) {
+            newQuantities.delete(productId);
+        } else {
+             newQuantities.set(productId, maxQuantity);
+        }
+        setRefundItems(newQuantities);
+    };
+
+    const { totalRefundAmount, totalRefundCost } = useMemo(() => {
+        let amount = 0;
+        let cost = 0;
+        if (!sale) return { totalRefundAmount: 0, totalRefundCost: 0 };
+
+        refundItems.forEach((quantity, productId) => {
+            const originalItem = sale.items.find(i => i.id === productId);
+            if (originalItem) {
+                amount += originalItem.price * quantity;
+                cost += (originalItem.cost || 0) * quantity;
+            }
+        });
+        return { totalRefundAmount: amount, totalRefundCost: cost };
+    }, [refundItems, sale]);
+
+    const handleSubmitRefund = async () => {
+        if (!sale || refundItems.size === 0 || !reason) {
+            alert('Please select items to refund and provide a reason.');
+            return;
+        }
+
+        const itemsToRefund: CartItem[] = [];
+        refundItems.forEach((quantity, productId) => {
+            const originalItem = sale.items.find(i => i.id === productId);
+            if (originalItem) {
+                itemsToRefund.push({ ...originalItem, quantity });
+            }
+        });
+
         const refundData: Omit<Refund, 'id'> = {
-            originalSaleId: saleToRefund.id,
+            originalSaleId: sale.id,
             items: itemsToRefund,
             totalRefundAmount,
             totalRefundCost,
             reason,
             returnedToStock: returnToStock,
             timestamp: new Date().toISOString(),
-            processedById: user.id,
-            processedByName: user.name,
+            processedById: currentUser!.id,
+            processedByName: currentUser!.name,
         };
-        const newRefund = await addRefund(refundData);
-        setRefundReceipt(newRefund);
+        
+        await actions.addRefund(refundData);
+        alert('Refund processed successfully!');
+        navigate('/sales');
     };
 
-    if (refundReceipt && saleToRefund) {
-        return <RefundReceipt receipt={refundReceipt} onDone={() => { window.location.hash = '#/sales'; }} settings={settings} originalSale={saleToRefund} />;
-    }
+    if (!sale) return <div className="p-8">Sale not found.</div>;
 
-    if (!saleToRefund) return <div className="p-4">Sale not found.</div>;
-    
     return (
-        <div className="max-w-4xl mx-auto">
-            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                <div className="flex items-center gap-4 mb-6">
-                    <a href="#/sales" className="text-primary hover:text-opacity-80 dark:text-accent dark:hover:text-opacity-80">{icons.arrowLeft}</a>
-                    <h1 className="text-3xl font-bold text-dark dark:text-light">Process Refund</h1>
-                </div>
-                <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                    <p><strong>Original Sale ID:</strong> {saleToRefund.id}</p>
-                    <p><strong>Date:</strong> {new Date(saleToRefund.timestamp).toLocaleString()}</p>
-                </div>
-                <div className="space-y-3">
-                    <h3 className="font-semibold text-lg dark:text-light">Select items to refund:</h3>
-                    {saleToRefund.items.map(item => {
-                        const alreadyRefunded = alreadyRefundedQuantities[item.id] || 0;
-                        const maxRefundable = item.quantity - alreadyRefunded;
-                        const currentRefundQty = refundQuantities[item.id] || 0;
+        <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto">
+             <button onClick={() => navigate('/sales')} className="flex items-center text-primary mb-4 hover:underline">
+                {icons.arrowLeft}
+                <span className="ml-2">Back to Sales History</span>
+            </button>
+            <h1 className="text-3xl font-bold mb-2 text-gray-800 dark:text-white">Process Refund</h1>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">For Sale ID: {sale.id}</p>
 
-                        if (maxRefundable <= 0) {
-                            return (
-                                <div key={item.id} className="p-3 bg-gray-100 dark:bg-gray-800/50 rounded-md flex items-center justify-between opacity-60">
-                                    <p>{item.name} ({item.quantity} purchased)</p>
-                                    <p className="text-sm">Fully refunded</p>
-                                </div>
-                            );
-                        }
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg p-8">
+                 <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Select items to refund</h2>
+                 <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b dark:border-gray-700">
+                                <th className="text-left py-2 font-semibold text-gray-600 dark:text-gray-300">Product</th>
+                                <th className="text-center py-2 font-semibold text-gray-600 dark:text-gray-300">Original Qty</th>
+                                <th className="text-center py-2 font-semibold text-gray-600 dark:text-gray-300">Refundable Qty</th>
+                                <th className="text-center py-2 font-semibold text-gray-600 dark:text-gray-300">Refund Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sale.items.map(item => {
+                                const alreadyRefunded = alreadyRefundedQuantities.get(item.id) || 0;
+                                const maxRefundable = item.quantity - alreadyRefunded;
+                                if (maxRefundable <= 0) return null;
 
-                        return (
-                            <div key={item.id} className="p-3 border dark:border-gray-700 rounded-md flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                                <div className="flex-grow">
-                                    <p className="font-semibold dark:text-light">{item.name}</p>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">{item.quantity} purchased, {alreadyRefunded} already refunded.</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                     <input 
-                                        type="number"
-                                        min="0"
-                                        max={maxRefundable}
-                                        value={currentRefundQty}
-                                        onChange={e => handleQuantityChange(item.id, parseInt(e.target.value), maxRefundable)}
-                                        className="w-20 text-center bg-transparent border rounded-md dark:border-gray-600"
-                                    />
-                                    <span className="text-sm text-gray-500">/ {maxRefundable}</span>
-                                </div>
-                            </div>
-                        )
-                    })}
-                </div>
-                <div className="mt-6 space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium">Reason for Refund *</label>
-                        <input type="text" value={reason} onChange={e => setReason(e.target.value)} className={INPUT_FIELD_CLASSES} required />
-                    </div>
-                     <div>
-                        <label className="flex items-center gap-2">
-                            <input type="checkbox" checked={returnToStock} onChange={e => setReturnToStock(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
-                            Return items to sellable stock
-                        </label>
-                    </div>
+                                return (
+                                    <tr key={item.id}>
+                                        <td className="py-3">{item.name}</td>
+                                        <td className="py-3 text-center">{item.quantity}</td>
+                                        <td className="py-3 text-center">{maxRefundable}</td>
+                                        <td className="py-3">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max={maxRefundable}
+                                                value={refundItems.get(item.id) || ''}
+                                                onChange={e => handleQuantityChange(item.id, parseInt(e.target.value) || 0, maxRefundable)}
+                                                className="w-20 text-center mx-auto block rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600"
+                                            />
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
 
-                <div className="mt-8 border-t dark:border-gray-700 pt-4 text-right">
-                    <p className="text-xl font-bold dark:text-light">
-                        Total Refund: <span className="text-red-500">-{settings.currencySymbol}{totalRefundAmount.toFixed(2)}</span>
-                    </p>
-                    <button 
-                        onClick={handleSubmitRefund}
-                        disabled={itemsToRefund.length === 0 || !reason}
-                        className="mt-4 px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400 dark:disabled:bg-gray-600"
-                    >
+                <div className="mt-8">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason for Refund</label>
+                    <input type="text" value={reason} onChange={e => setReason(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                <div className="mt-4 flex items-center">
+                    <input id="returnToStock" type="checkbox" checked={returnToStock} onChange={e => setReturnToStock(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                    <label htmlFor="returnToStock" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Return items to sellable stock</label>
+                </div>
+                
+                <div className="border-t dark:border-gray-700 mt-8 pt-4 text-right">
+                    <p className="text-lg font-bold text-gray-800 dark:text-white">Total Refund: ${totalRefundAmount.toFixed(2)}</p>
+                    <button onClick={handleSubmitRefund} className="mt-4 inline-flex justify-center py-2 px-6 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">
                         Process Refund
                     </button>
                 </div>
@@ -1955,351 +2259,126 @@ const RefundPage: React.FC = () => {
         </div>
     );
 };
+const SettingsPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">Settings</h1></div>; };
 
-const UsersManagementPage: React.FC = () => {
-    const { users, saveUser, deleteUser } = useStore();
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-    const [selectedUser, setSelectedUser] = useState<User | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const filteredUsers = useMemo(() => {
-        return users.filter(u =>
-            u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            u.role.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [users, searchTerm]);
-    
-    const { items: sortedUsers, requestSort, sortConfig } = useSort(filteredUsers, { key: 'name', direction: 'asc' });
-
-    const openModal = (user: User | null = null) => {
-        setSelectedUser(user);
-        setIsModalOpen(true);
-    };
-
-    const openDeleteConfirm = (user: User) => {
-        setSelectedUser(user);
-        setIsConfirmOpen(true);
-    };
-
-    const handleDelete = async () => {
-        if (selectedUser) {
-            await deleteUser(selectedUser.id);
-            setIsConfirmOpen(false);
-            setSelectedUser(null);
-        }
-    };
-    
-    return (
-        <>
-        <ManagementPage
-            title="Users"
-            addBtnLabel="Add User"
-            onAdd={() => openModal()}
-            searchTerm={searchTerm}
-            onSearch={setSearchTerm}
-        >
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                     <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                        <tr>
-                            <SortableHeader label="Name" sortKey="name" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Username" sortKey="username" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Role" sortKey="role" sortConfig={sortConfig} requestSort={requestSort} />
-                            <th className="px-4 py-3">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sortedUsers.map(user => (
-                            <tr key={user.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{user.name}</td>
-                                <td className="px-4 py-3">{user.username}</td>
-                                <td className="px-4 py-3">{user.role}</td>
-                                <td className="px-4 py-3 flex gap-2">
-                                    <button onClick={() => openModal(user)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</button>
-                                    <button onClick={() => openDeleteConfirm(user)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </ManagementPage>
-        <UserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} user={selectedUser} saveUser={saveUser} />
-        <ConfirmationModal 
-            isOpen={isConfirmOpen} 
-            onClose={() => setIsConfirmOpen(false)}
-            onConfirm={handleDelete}
-            title="Delete User"
-        >
-            Are you sure you want to delete the user "{selectedUser?.name}"? This cannot be undone.
-        </ConfirmationModal>
-        </>
-    );
-};
-
-const UserModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    user: User | null;
-    saveUser: (user: User) => Promise<void>;
-}> = ({ isOpen, onClose, user, saveUser }) => {
-    const [formData, setFormData] = useState<Partial<User>>({});
-    const [password, setPassword] = useState('');
-
-    useEffect(() => {
-        if (isOpen) {
-            setFormData(user || { role: UserRole.CASHIER });
-            setPassword('');
-        }
-    }, [isOpen, user]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const userToSave: User = {
-            ...formData,
-            id: formData.id || `user-${Date.now()}`,
-            name: formData.name!,
-            username: formData.username!,
-            role: formData.role!,
-        };
-        if (password) {
-            userToSave.password = password;
-        }
-        await saveUser(userToSave);
-        onClose();
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={user ? 'Edit User' : 'Add User'}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium">Full Name *</label>
-                    <input type="text" name="name" value={formData.name || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium">Username *</label>
-                    <input type="text" name="username" value={formData.username || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium">Role *</label>
-                    <select name="role" value={formData.role} onChange={handleChange} className={INPUT_FIELD_CLASSES} required>
-                        {Object.values(UserRole).map(role => <option key={role} value={role}>{role}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium">Password</label>
-                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={user ? "Leave blank to keep unchanged" : "Required for new user"} className={INPUT_FIELD_CLASSES} required={!user} />
-                </div>
-                <div className="pt-4 flex justify-end gap-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">{user ? 'Save Changes' : 'Add User'}</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const PurchaseOrdersManagementPage: React.FC = () => {
-    const { purchaseOrders, settings } = useStore();
-    const [searchTerm, setSearchTerm] = useState('');
-    
-    const filteredPOs = useMemo(() => {
-        return purchaseOrders.filter(po =>
-            po.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            po.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            po.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            po.items.some(item =>
-                item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.productSku.toLowerCase().includes(searchTerm.toLowerCase())
-            )
-        );
-    }, [purchaseOrders, searchTerm]);
-
-    const { items: sortedPOs, requestSort, sortConfig } = useSort(filteredPOs, { key: 'createdAt', direction: 'desc' });
-
-    return (
-        <ManagementPage
-            title="Purchase Orders"
-            addBtnLabel="Create PO"
-            onAdd={() => window.location.hash = '#/purchase-orders/new'}
-            searchTerm={searchTerm}
-            onSearch={setSearchTerm}
-        >
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                        <tr>
-                            <SortableHeader label="PO Number" sortKey="poNumber" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Created" sortKey="createdAt" sortConfig={sortConfig} requestSort={requestSort} />
-                            <SortableHeader label="Total" sortKey="total" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                            <th className="px-4 py-3 text-center">Status</th>
-                            <th className="px-4 py-3">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sortedPOs.map(po => (
-                            <tr key={po.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                <td className="px-4 py-3 font-medium text-primary dark:text-accent whitespace-nowrap"><a href={`#/purchase-orders/${po.id}`}>{po.poNumber}</a></td>
-                                <td className="px-4 py-3">{po.supplierName}</td>
-                                <td className="px-4 py-3">{new Date(po.createdAt).toLocaleDateString()}</td>
-                                <td className="px-4 py-3 text-right">{settings.currencySymbol}{po.total.toFixed(2)}</td>
-                                <td className="px-4 py-3 text-center">
-                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPOStatusColor(po.status)}`}>
-                                        {po.status}
-                                    </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                    <a href={`#/purchase-orders/${po.id}`} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</a>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </ManagementPage>
-    );
-};
-
-const PurchaseOrderFormPage: React.FC = () => {
-    // This component will be large, so we define it right before the Router
-    // ... Implementation will follow ...
-    return <div className="text-dark dark:text-light">Purchase Order Form Page (To be implemented)</div>;
-};
-
-// --- App Structure --- //
-const NavLink: React.FC<{ href: string; icon: React.ReactNode; children: React.ReactNode; currentPath: string }> = ({ href, icon, children, currentPath }) => {
-    const isActive = href === `#/${currentPath.split('/')[1]}`;
-    return (
-        <a href={href} className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-primary/10 text-primary font-semibold' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
-            {icon}
-            <span>{children}</span>
-        </a>
-    );
-};
-
+// --- MAIN APP COMPONENT --- //
 const App: React.FC = () => {
-    const { user, logout } = useAuth();
-    const { settings } = useStore();
-    const { theme, toggleTheme } = useTheme();
-    const [currentPath, setCurrentPath] = useState(window.location.hash.slice(1) || 'dashboard');
+    const { currentUser } = useStore();
+    const router = useRouter();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    useEffect(() => {
-        const handleHashChange = () => {
-            setCurrentPath(window.location.hash.slice(1) || 'dashboard');
-            setIsSidebarOpen(false);
-        };
-        window.addEventListener('hashchange', handleHashChange);
-        return () => window.removeEventListener('hashchange', handleHashChange);
-    }, []);
+    const handleToggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+    const closeSidebar = () => setIsSidebarOpen(false);
 
-    const hasAccess = (roles: UserRole[]) => user && roles.includes(user.role);
-
-    const navLinks = [
-        { href: '#/dashboard', icon: icons.dashboard, label: 'Dashboard', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { href: '#/pos', icon: icons.pos, label: 'POS', roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
-        { href: '#/inventory', icon: icons.inventory, label: 'Inventory', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { href: '#/products', icon: icons.products, label: 'Products', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { href: '#/purchase-orders', icon: icons.purchaseOrder, label: 'Purchase Orders', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { href: '#/suppliers', icon: icons.suppliers, label: 'Suppliers', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { href: '#/sales', icon: icons.sales, label: 'Sales History', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { href: '#/users', icon: icons.users, label: 'Users', roles: [UserRole.SUPER_ADMIN] },
-        { href: '#/settings', icon: icons.settings, label: 'Settings', roles: [UserRole.SUPER_ADMIN] },
-    ];
-
+    if (!currentUser) {
+        return <LoginPage />;
+    }
+    
     const renderPage = () => {
-        const [page, subpage] = currentPath.split('/');
-        
-        switch (page) {
-            case 'dashboard': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <DashboardPage /> : <POSPage />;
-            case 'pos': return hasAccess([UserRole.SUPER_ADMIN, UserRole.CASHIER]) ? <POSPage /> : <div>Access Denied</div>;
-            case 'inventory': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <InventoryManagementPage /> : <div>Access Denied</div>;
-            case 'receive-stock': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <ReceiveStockPage /> : <div>Access Denied</div>;
-            case 'products': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <ProductManagementPage /> : <div>Access Denied</div>;
-            case 'purchase-orders': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <PurchaseOrdersManagementPage /> : <div>Access Denied</div>;
-            case 'sales': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <SalesHistoryPage /> : <div>Access Denied</div>;
-            case 'refund': return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <RefundPage /> : <div>Access Denied</div>;
-            case 'users': return hasAccess([UserRole.SUPER_ADMIN]) ? <UsersManagementPage /> : <div>Access Denied</div>;
-            case 'settings': return hasAccess([UserRole.SUPER_ADMIN]) ? <div>Settings Page</div> : <div>Access Denied</div>;
-            default: return hasAccess([UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]) ? <DashboardPage /> : <POSPage />;
+        const { page, param } = router;
+
+        switch(page) {
+            case 'dashboard':
+                return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <DashboardPage />
+                    </ProtectedRoute>
+                );
+            case 'pos':
+                return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.CASHIER]}>
+                        <POSPage />
+                    </ProtectedRoute>
+                );
+            case 'sales':
+                 return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <SalesHistoryPage />
+                    </ProtectedRoute>
+                );
+             case 'refund':
+                return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <RefundPage />
+                    </ProtectedRoute>
+                );
+            case 'inventory':
+                 return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <InventoryManagementPage />
+                    </ProtectedRoute>
+                );
+            case 'products':
+                 return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <ProductManagementPage />
+                    </ProtectedRoute>
+                );
+             case 'receive-stock':
+                 return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <ReceiveStockPage />
+                    </ProtectedRoute>
+                );
+            case 'users':
+                return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}>
+                        <UserManagementPage />
+                    </ProtectedRoute>
+                );
+            case 'suppliers':
+                 return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <SuppliersManagementPage />
+                    </ProtectedRoute>
+                );
+             case 'categories':
+                 return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <CategoriesManagementPage />
+                    </ProtectedRoute>
+                );
+            case 'purchase-orders':
+                return (
+                     <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        {param ? <PurchaseOrderFormPage /> : <PurchaseOrdersManagementPage />}
+                    </ProtectedRoute>
+                );
+            case 'settings':
+                return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}>
+                        <SettingsPage />
+                    </ProtectedRoute>
+                );
+            default:
+                router.navigate('/dashboard');
+                return (
+                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
+                        <DashboardPage />
+                    </ProtectedRoute>
+                );
         }
     };
-    
-    return (
-        <div className="flex h-screen bg-light dark:bg-dark-bg text-gray-800 dark:text-gray-200">
-            {/* Sidebar */}
-            <aside className={`fixed lg:relative z-20 w-64 h-full bg-white dark:bg-dark-card shadow-md flex-col ${isSidebarOpen ? 'flex' : 'hidden'} lg:flex`}>
-                <div className="h-20 flex items-center justify-center border-b dark:border-gray-700">
-                    <h1 className="text-2xl font-bold text-primary">{settings.appName}</h1>
-                </div>
-                <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-                    {navLinks.map(link => hasAccess(link.roles) && (
-                        <NavLink key={link.href} href={link.href} icon={link.icon} currentPath={currentPath}>
-                            {link.label}
-                        </NavLink>
-                    ))}
-                </nav>
-                 <div className="p-4 border-t dark:border-gray-700">
-                     <a href="#" onClick={logout} className="flex items-center gap-3 px-4 py-3 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
-                        {icons.logout}
-                        <span>Logout</span>
-                    </a>
-                </div>
-            </aside>
 
-            {/* Main Content */}
+    return (
+        <div className="flex h-screen bg-gray-100 dark:bg-dark-bg">
+            <Sidebar isOpen={isSidebarOpen} onLinkClick={closeSidebar} />
             <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Header */}
-                <header className="h-20 bg-white dark:bg-dark-card shadow-md flex items-center justify-between lg:justify-end px-6">
-                     <button className="lg:hidden text-gray-600 dark:text-gray-300" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                        {icons.hamburger}
-                    </button>
-                    <div className="flex items-center gap-4">
-                        <button onClick={toggleTheme} className="text-gray-500 dark:text-gray-400 hover:text-primary dark:hover:text-accent">
-                            {theme === 'light' ? icons.moon : icons.sun}
-                        </button>
-                        <div className="flex items-center gap-2">
-                           {icons.user}
-                            <div>
-                               <p className="font-semibold">{user?.name}</p>
-                               <p className="text-xs text-gray-500 dark:text-gray-400">{user?.role}</p>
-                            </div>
-                        </div>
-                    </div>
-                </header>
-                {/* Content Area */}
-                <main className="flex-1 overflow-y-auto p-6">
+                <Header onToggleSidebar={handleToggleSidebar} />
+                <main className="flex-1 overflow-x-hidden overflow-y-auto">
                     {renderPage()}
                 </main>
             </div>
         </div>
     );
-}
-
+};
 
 const Root: React.FC = () => {
     return (
-        <ThemeProvider>
-            <AuthProvider>
-                <StoreProvider>
-                    <AuthenticatedApp />
-                </StoreProvider>
-            </AuthProvider>
-        </ThemeProvider>
+        <StoreProvider>
+            <App />
+        </StoreProvider>
     );
 };
-
-const AuthenticatedApp: React.FC = () => {
-    const { user } = useAuth();
-    return user ? <App /> : <LoginPage />;
-}
 
 export default Root;
