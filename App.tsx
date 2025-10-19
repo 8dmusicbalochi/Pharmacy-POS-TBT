@@ -86,6 +86,7 @@ interface StoreContextType {
         deleteProduct: (productId: string) => Promise<void>;
         bulkAddProducts: (products: Omit<Product, 'id'>[]) => Promise<{ added: number, updated: number }>;
         receiveStock: (item: Omit<InventoryItem, 'id' | 'addedDate'>) => Promise<void>;
+        adjustStock: (item: InventoryItem, adjustment: number, reason: string) => Promise<void>;
         addSale: (sale: Omit<Sale, 'id'| 'totalCost'| 'totalProfit'>) => Promise<Sale>;
         addAuditLog: (log: Omit<AuditLog, 'id'>) => Promise<void>;
         saveSettings: (settings: AppSettings) => Promise<void>;
@@ -223,6 +224,31 @@ const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
             fetchData('inventory');
             if(fullItem.purchaseOrderId) fetchData('purchaseOrders');
         },
+        adjustStock: async (item: InventoryItem, adjustment: number, reason: string) => {
+            const newQuantity = item.quantity + adjustment;
+            if (newQuantity < 0) throw new Error("Stock cannot be negative.");
+            
+            const updatedItem = { ...item, quantity: newQuantity };
+            mockApi.saveInventoryItem(updatedItem);
+
+            const product = getters.getProductById(item.productId);
+            const totalStock = getters.getTotalStock(item.productId) + adjustment;
+            
+            if (currentUser && product) {
+                 await actions.addAuditLog({
+                    timestamp: new Date().toISOString(),
+                    userId: currentUser.id,
+                    userName: currentUser.name,
+                    productId: item.productId,
+                    productName: product.name,
+                    quantityChange: adjustment,
+                    newTotalStock: totalStock,
+                    reason: reason,
+                });
+            }
+           
+            fetchData('inventory');
+        },
         addSale: async (sale: Omit<Sale, 'id'| 'totalCost'| 'totalProfit'>) => {
             const newSale = mockApi.addSale(sale);
             fetchData('sales');
@@ -250,10 +276,12 @@ const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
         saveSupplier: async (supplier: Supplier) => {
             mockApi.saveSupplier(supplier);
             fetchData('suppliers');
+            fetchData('inventory');
         },
         deleteSupplier: async (supplierId: string) => {
             mockApi.deleteSupplier(supplierId);
             fetchData('suppliers');
+            fetchData('inventory');
         },
         saveTask: async (task: Task) => {
             mockApi.saveTask(task);
@@ -284,7 +312,7 @@ const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
             mockApi.markNotificationsAsRead(ids);
             fetchData('notifications');
         }
-    }), [fetchData]);
+    }), [fetchData, currentUser, getters]);
 
     const value = {
         currentUser,
@@ -362,11 +390,11 @@ const useRouter = () => {
     }, [handleHashChange]);
 
     const navigate = (path: string) => {
-        window.location.hash = path;
+        window.location.hash = path.startsWith('/') ? path : `/${path}`;
     };
     
     const { page, param } = useMemo(() => {
-        const pathParts = hash.replace('#/', '').split('/');
+        const pathParts = hash.replace(/^#\/?/, '').split('/');
         const page = pathParts[0] || 'dashboard';
         const param = pathParts[1];
         return { page, param };
@@ -460,21 +488,17 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
                 <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
                 <div className={`inline-block align-bottom bg-white dark:bg-dark-card rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle w-full ${sizeClasses[size]}`}>
                     <div className="bg-white dark:bg-dark-card px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                        <div className="sm:flex sm:items-start">
-                            <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white" id="modal-title">
-                                    {title}
-                                </h3>
-                                <div className="mt-4">
-                                    {children}
-                                </div>
-                            </div>
+                        <div className="flex justify-between items-center pb-3">
+                             <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white" id="modal-title">
+                                {title}
+                            </h3>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300">
+                                {icons.close}
+                            </button>
                         </div>
-                    </div>
-                     <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                        <button type="button" onClick={onClose} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-                            Close
-                        </button>
+                        <div className="mt-2">
+                           {children}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -573,7 +597,11 @@ const LoginPage: React.FC = () => {
         <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-dark-bg">
             <div className="max-w-md w-full bg-white dark:bg-dark-card shadow-md rounded-lg p-8">
                 <div className="text-center mb-6">
-                    <h1 className="text-3xl font-bold text-gray-800 dark:text-white">{settings.appName}</h1>
+                    {settings.appLogo ? (
+                        <img src={settings.appLogo} alt="App Logo" className="h-16 mx-auto mb-4" />
+                    ) : (
+                         <h1 className="text-3xl font-bold text-gray-800 dark:text-white">{settings.appName}</h1>
+                    )}
                     <p className="text-gray-500 dark:text-gray-400">Please sign in to your account</p>
                 </div>
                 <form onSubmit={handleSubmit}>
@@ -609,7 +637,7 @@ const LoginPage: React.FC = () => {
                     <div className="flex items-center justify-between">
                         <button
                             type="submit"
-                            className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                            className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors duration-200"
                         >
                             Sign In
                         </button>
@@ -625,7 +653,7 @@ const ProtectedRoute: React.FC<{ children: ReactNode; allowedRoles: UserRole[] }
     const router = useRouter();
 
     if (!currentUser) {
-        router.navigate('login');
+        // This check is a safeguard; parent component should handle redirection.
         return null;
     }
 
@@ -648,26 +676,32 @@ const Header: React.FC<{ onToggleSidebar: () => void }> = ({ onToggleSidebar }) 
     const [theme, setTheme] = useDarkMode();
 
     return (
-        <header className="bg-white dark:bg-dark-card shadow-sm p-4 flex justify-between items-center">
+        <header className="bg-white dark:bg-dark-card shadow-sm p-4 flex justify-between items-center z-30">
              <div className="flex items-center">
                  <button onClick={onToggleSidebar} className="text-gray-500 dark:text-gray-400 mr-4 lg:hidden">
                     {icons.hamburger}
                 </button>
-                <h1 className="text-xl font-semibold text-gray-800 dark:text-white">{settings.appName}</h1>
+                 {settings.appLogo ? (
+                    <img src={settings.appLogo} alt="App Logo" className="h-8" />
+                ) : (
+                    <h1 className="text-xl font-semibold text-gray-800 dark:text-white">{settings.appName}</h1>
+                )}
             </div>
             <div className="flex items-center space-x-4">
-                <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="text-gray-600 dark:text-gray-300">
+                <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="text-gray-600 dark:text-gray-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                     {theme === 'light' ? icons.moon : icons.sun}
                 </button>
                 
                 <NotificationPopover />
 
                 <div className="relative">
-                    <span className="text-gray-800 dark:text-white">{currentUser?.name}</span>
+                    <span className="text-gray-800 dark:text-white hidden sm:inline">{currentUser?.name}</span>
                 </div>
-                 <button onClick={logout} className="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-secondary">
-                   {icons.logout}
-                </button>
+                 <Tooltip text="Logout">
+                    <button onClick={logout} className="text-gray-600 dark:text-gray-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                       {icons.logout}
+                    </button>
+                </Tooltip>
             </div>
         </header>
     );
@@ -719,7 +753,7 @@ const NotificationPopover: React.FC = () => {
 
     return (
         <div className="relative" ref={popoverRef}>
-            <button onClick={handleToggle} className="relative text-gray-600 dark:text-gray-300">
+            <button onClick={handleToggle} className="relative text-gray-600 dark:text-gray-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                 {icons.bell}
                 {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4">
@@ -729,7 +763,7 @@ const NotificationPopover: React.FC = () => {
                 )}
             </button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-dark-card rounded-md shadow-lg z-20">
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-dark-card rounded-md shadow-lg z-20 border dark:border-gray-700">
                     <div className="py-2 px-4 border-b dark:border-gray-700 flex justify-between items-center">
                         <h3 className="font-semibold text-gray-800 dark:text-white">Notifications</h3>
                         {unreadCount > 0 && <button onClick={markAllAsRead} className="text-sm text-primary hover:underline">Mark all as read</button>}
@@ -760,35 +794,46 @@ const NotificationPopover: React.FC = () => {
 };
 
 const Sidebar: React.FC<{ isOpen: boolean; onLinkClick: () => void }> = ({ isOpen, onLinkClick }) => {
-    const { currentUser } = useStore();
+    const { currentUser, settings } = useStore();
     const router = useRouter();
+
+    const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+        e.preventDefault();
+        router.navigate(path);
+        onLinkClick();
+    };
     
     const navLinks = [
-        { name: 'Dashboard', path: '#dashboard', icon: icons.dashboard, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'POS', path: '#pos', icon: icons.pos, roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
-        { name: 'Sales History', path: '#sales', icon: icons.sales, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Inventory', path: '#inventory', icon: icons.inventory, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Receive Stock', path: '#receive-stock', icon: icons.plus, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Products', path: '#products', icon: icons.products, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Categories', path: '#categories', icon: icons.category, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Suppliers', path: '#suppliers', icon: icons.suppliers, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Purchase Orders', path: '#purchase-orders', icon: icons.purchaseOrder, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
-        { name: 'Users', path: '#users', icon: icons.users, roles: [UserRole.SUPER_ADMIN] },
-        { name: 'Settings', path: '#settings', icon: icons.settings, roles: [UserRole.SUPER_ADMIN] },
+        { name: 'Dashboard', path: '/dashboard', icon: icons.dashboard, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'POS', path: '/pos', icon: icons.pos, roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
+        { name: 'Sales History', path: '/sales', icon: icons.sales, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Inventory', path: '/inventory', icon: icons.inventory, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Receive Stock', path: '/receive-stock', icon: icons.plus, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Products', path: '/products', icon: icons.products, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Categories', path: '/categories', icon: icons.category, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Suppliers', path: '/suppliers', icon: icons.suppliers, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Purchase Orders', path: '/purchase-orders', icon: icons.purchaseOrder, roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Users', path: '/users', icon: icons.users, roles: [UserRole.SUPER_ADMIN] },
+        { name: 'Settings', path: '/settings', icon: icons.settings, roles: [UserRole.SUPER_ADMIN] },
     ];
 
     return (
-        <aside className={`bg-primary dark:bg-dark-card text-white w-64 space-y-2 py-4 flex flex-col fixed inset-y-0 left-0 z-40 lg:relative lg:translate-x-0 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-200 ease-in-out`}>
-           <div className="px-4 mb-4">
-                <h2 className="text-2xl font-bold text-white flex items-center">{icons.dashboard} <span className="ml-2">Pharmacy POS</span></h2>
+        <aside className={`bg-primary dark:bg-dark-card text-white w-64 space-y-2 py-4 flex flex-col fixed inset-y-0 left-0 z-40 lg:relative lg:translate-x-0 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-200 ease-in-out shadow-lg`}>
+           <div className="px-4 mb-4 flex items-center">
+                {settings.appIcon ? (
+                    <img src={settings.appIcon} alt="App Icon" className="h-8 w-8 mr-2" />
+                ) : (
+                     <span className="text-white">{icons.dashboard}</span>
+                )}
+                <h2 className="text-xl font-bold text-white ml-2">{settings.appName}</h2>
             </div>
             <nav className="flex-1 px-2 space-y-1">
                 {navLinks.filter(link => link.roles.includes(currentUser!.role)).map(link => (
                     <a
                         key={link.name}
-                        href={link.path}
-                        onClick={onLinkClick}
-                        className={`flex items-center space-x-3 px-3 py-2 rounded-md text-base font-medium ${router.page === link.path.substring(1).split('/')[0] ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                        href={`#${link.path}`}
+                        onClick={(e) => handleNavigation(e, link.path)}
+                        className={`flex items-center space-x-3 px-3 py-2 rounded-md text-base font-medium transition-colors duration-200 ${router.page === link.path.substring(1).split('/')[0] ? 'bg-white/20' : 'hover:bg-white/10'}`}
                     >
                         {link.icon}
                         <span>{link.name}</span>
@@ -801,7 +846,7 @@ const Sidebar: React.FC<{ isOpen: boolean; onLinkClick: () => void }> = ({ isOpe
 
 // --- PAGE COMPONENTS --- //
 const DashboardPage: React.FC = () => {
-    const { sales, products, inventory, tasks, actions, getters, currentUser } = useStore();
+    const { sales, products, inventory, tasks, actions, getters, currentUser, settings } = useStore();
     const [filter, setFilter] = useState('today');
 
     const filteredSales = useMemo(() => {
@@ -826,7 +871,7 @@ const DashboardPage: React.FC = () => {
 
     const lowStockProducts = useMemo(() => {
         return products.filter(p => getters.getTotalStock(p.id) < p.lowStockThreshold);
-    }, [products, getters]);
+    }, [products, getters, inventory]);
     
     const expiredProductsCount = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
@@ -898,7 +943,7 @@ const DashboardPage: React.FC = () => {
     }, [filteredSales, filter]);
 
     const StatCard: React.FC<{ title: string; value: string | number; icon: ReactNode; color: string }> = ({ title, value, icon, color }) => (
-        <div className="bg-white dark:bg-dark-card p-6 rounded-lg shadow flex items-center">
+        <div className="bg-white dark:bg-dark-card p-6 rounded-lg shadow flex items-center transition-shadow hover:shadow-md">
             <div className={`p-3 rounded-full mr-4 ${color}`}>
                 {icon}
             </div>
@@ -980,8 +1025,8 @@ const DashboardPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-                <StatCard title="Total Revenue" value={`$${totalRevenue.toFixed(2)}`} icon={icons.dollar} color="bg-green-100 text-green-600" />
-                <StatCard title="Total Profit" value={`$${totalProfit.toFixed(2)}`} icon={icons.trendingUp} color="bg-blue-100 text-blue-600" />
+                <StatCard title="Total Revenue" value={`${settings.currencySymbol}${totalRevenue.toFixed(2)}`} icon={icons.dollar} color="bg-green-100 text-green-600" />
+                <StatCard title="Total Profit" value={`${settings.currencySymbol}${totalProfit.toFixed(2)}`} icon={icons.trendingUp} color="bg-blue-100 text-blue-600" />
                 <StatCard title="Total Sales" value={totalSales} icon={icons.pos} color="bg-yellow-100 text-yellow-600" />
                 <StatCard title="Low Stock Items" value={lowStockProducts.length} icon={icons.inventory} color="bg-red-100 text-red-600" />
             </div>
@@ -999,7 +1044,7 @@ const DashboardPage: React.FC = () => {
                                 {topSellingProducts.map(p => (
                                     <li key={p.name} className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
                                         <span>{p.name}</span>
-                                        <span className="font-medium text-gray-800 dark:text-white">${p.revenue.toFixed(2)}</span>
+                                        <span className="font-medium text-gray-800 dark:text-white">{settings.currencySymbol}{p.revenue.toFixed(2)}</span>
                                     </li>
                                 ))}
                             </ul>
@@ -1123,6 +1168,7 @@ const POSPage: React.FC = () => {
             const config = { fps: 10, qrbox: { width: 250, height: 250 } };
             html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback, undefined).catch((err: any) => {
                 console.error("Unable to start scanning.", err);
+                alert("Could not start scanner. Please ensure camera permissions are enabled.");
                 setIsScanning(false);
             });
             scannerRef.current = html5QrCode;
@@ -1142,19 +1188,19 @@ const POSPage: React.FC = () => {
     }
     
     return (
-        <div className="flex h-[calc(100vh-65px)]">
-            <div className="w-2/3 p-4 flex flex-col">
+        <div className="flex flex-col lg:flex-row h-[calc(100vh-65px)]">
+            <div className="w-full lg:w-2/3 p-4 flex flex-col">
                 <div className="relative mb-4">
                     <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by name or SKU..." />
-                    <button onClick={startScanner} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-gray-200 dark:bg-gray-600 rounded">
-                        {icons.barcode}
+                    <button onClick={startScanner} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                        <Tooltip text="Scan Barcode">{icons.barcode}</Tooltip>
                     </button>
                     {filteredProducts.length > 0 && searchTerm && (
-                        <div className="absolute z-10 w-full bg-white dark:bg-dark-card shadow-lg rounded-md mt-1 max-h-60 overflow-y-auto">
+                        <div className="absolute z-10 w-full bg-white dark:bg-dark-card shadow-lg rounded-md mt-1 max-h-60 overflow-y-auto border dark:border-gray-700">
                             <ul>
                                 {filteredProducts.map(product => (
                                     <li key={product.id} onClick={() => { addToCart(product); setSearchTerm(''); }}
-                                        className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center"
+                                        className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center border-b dark:border-gray-700 last:border-b-0"
                                     >
                                         <div>
                                             <p className="font-semibold text-gray-800 dark:text-white">{product.name}</p>
@@ -1175,7 +1221,7 @@ const POSPage: React.FC = () => {
                 <div className="flex-1 overflow-y-auto bg-white dark:bg-dark-card p-4 rounded-lg shadow-inner">
                     <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Current Sale</h2>
                     {cart.length === 0 ? (
-                        <p className="text-gray-500 dark:text-gray-400">Cart is empty. Add products to get started.</p>
+                        <p className="text-gray-500 dark:text-gray-400 text-center py-10">Cart is empty. Add products to get started.</p>
                     ) : (
                         <table className="w-full">
                             <thead>
@@ -1215,7 +1261,7 @@ const POSPage: React.FC = () => {
                     )}
                 </div>
             </div>
-            <div className="w-1/3 bg-gray-50 dark:bg-dark-card p-6 flex flex-col shadow-lg">
+            <div className="w-full lg:w-1/3 bg-gray-50 dark:bg-dark-card p-6 flex flex-col shadow-lg border-l dark:border-gray-700">
                 <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">Checkout</h2>
                 <div className="flex-1 space-y-4">
                     <div className="flex justify-between text-lg">
@@ -1235,10 +1281,10 @@ const POSPage: React.FC = () => {
                 <div className="mt-6">
                     <h3 className="font-semibold mb-3 text-gray-800 dark:text-white">Payment Method</h3>
                     <div className="flex space-x-4">
-                        <button onClick={() => setPaymentMethod(PaymentMethod.CASH)} className={`flex-1 p-3 rounded-lg border-2 flex items-center justify-center space-x-2 ${paymentMethod === PaymentMethod.CASH ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-600'}`}>
+                        <button onClick={() => setPaymentMethod(PaymentMethod.CASH)} className={`flex-1 p-3 rounded-lg border-2 flex items-center justify-center space-x-2 transition-colors ${paymentMethod === PaymentMethod.CASH ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-600'}`}>
                             {icons.cash} <span className="dark:text-white">Cash</span>
                         </button>
-                        <button onClick={() => setPaymentMethod(PaymentMethod.CARD)} className={`flex-1 p-3 rounded-lg border-2 flex items-center justify-center space-x-2 ${paymentMethod === PaymentMethod.CARD ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-600'}`}>
+                        <button onClick={() => setPaymentMethod(PaymentMethod.CARD)} className={`flex-1 p-3 rounded-lg border-2 flex items-center justify-center space-x-2 transition-colors ${paymentMethod === PaymentMethod.CARD ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-600'}`}>
                            {icons.card} <span className="dark:text-white">Card</span>
                         </button>
                     </div>
@@ -1246,7 +1292,7 @@ const POSPage: React.FC = () => {
                 <button
                     onClick={handleCheckout}
                     disabled={cart.length === 0}
-                    className="w-full bg-primary text-white font-bold py-4 rounded-lg mt-8 text-lg hover:bg-primary/90 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    className="w-full bg-primary text-white font-bold py-4 rounded-lg mt-8 text-lg hover:bg-primary/90 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
                     Complete Payment
                 </button>
@@ -1397,9 +1443,9 @@ const SalesHistoryPage: React.FC = () => {
                                 <td className="px-6 py-4">{settings.currencySymbol}{sale.total.toFixed(2)}</td>
                                 <td className="px-6 py-4">{settings.currencySymbol}{(sale.totalProfit || 0).toFixed(2)}</td>
                                 <td className="px-6 py-4">{getSaleStatus(sale)}</td>
-                                <td className="px-6 py-4 text-right">
-                                    <button onClick={() => setSelectedSale(sale)} className="text-primary hover:underline mr-4">View</button>
-                                    <button onClick={() => router.navigate(`/refund/${sale.id}`)} className="text-accent hover:underline">Refund</button>
+                                <td className="px-6 py-4 text-right space-x-4">
+                                    <button onClick={() => setSelectedSale(sale)} className="font-medium text-primary hover:underline">View</button>
+                                    <button onClick={() => router.navigate(`/refund/${sale.id}`)} className="font-medium text-accent hover:underline">Refund</button>
                                 </td>
                             </tr>
                         ))}
@@ -1408,7 +1454,7 @@ const SalesHistoryPage: React.FC = () => {
             </div>
 
             {selectedSale && (
-                <Modal isOpen={!!selectedSale} onClose={() => setSelectedSale(null)} title={`Sale Details: ${selectedSale.id}`} size="lg">
+                <Modal isOpen={!!selectedSale} onClose={() => setSelectedSale(null)} title={`Sale Details: ${selectedSale.id}`} size="sm">
                     <SaleReceipt sale={selectedSale} onNewSale={() => setSelectedSale(null)} settings={settings} />
                 </Modal>
             )}
@@ -1417,13 +1463,13 @@ const SalesHistoryPage: React.FC = () => {
 };
 
 const InventoryManagementPage: React.FC = () => {
-    const { inventory, products, actions, currentUser, getters, fetchData } = useStore();
+    const { inventory, products, actions, getters } = useStore();
     const [searchTerm, setSearchTerm] = useState('');
     const debouncedSearch = useDebounce(searchTerm, 300);
     const [view, setView] = useState<'summary' | 'batches'>('summary');
     const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
     const [logReason, setLogReason] = useState('');
-    const [adjustment, setAdjustment] = useState(0);
+    const [adjustment, setAdjustment] = useState<number | ''>('');
 
     const inventorySummary = useMemo(() => {
         const summary = products.map(product => {
@@ -1442,7 +1488,7 @@ const InventoryManagementPage: React.FC = () => {
             p.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
             p.sku.toLowerCase().includes(debouncedSearch.toLowerCase())
         );
-    }, [products, getters, debouncedSearch]);
+    }, [products, getters, debouncedSearch, inventory]);
 
     const batchDetails = useMemo(() => {
         return inventory.map(item => {
@@ -1460,42 +1506,23 @@ const InventoryManagementPage: React.FC = () => {
     }, [inventory, getters, debouncedSearch]);
     
     const handleAdjustStock = async () => {
-        if (!editingItem || !logReason || adjustment === 0) return;
+        if (!editingItem || !logReason || adjustment === '' || adjustment === 0) return;
 
-        const originalQuantity = editingItem.quantity;
-        const newQuantity = originalQuantity + adjustment;
-
-        if (newQuantity < 0) {
-            alert("Stock cannot be negative.");
-            return;
+        try {
+            await actions.adjustStock(editingItem, adjustment, logReason);
+            setEditingItem(null);
+            setLogReason('');
+            setAdjustment('');
+        } catch (error: any) {
+            alert(error.message);
         }
-
-        const updatedItem = { ...editingItem, quantity: newQuantity };
-        mockApi.saveInventoryItem(updatedItem); // Directly call mockApi to prevent re-fetch loop
-
-        await actions.addAuditLog({
-            timestamp: new Date().toISOString(),
-            userId: currentUser!.id,
-            userName: currentUser!.name,
-            productId: editingItem.productId,
-            productName: products.find(p => p.id === editingItem.productId)?.name || 'N/A',
-            quantityChange: adjustment,
-            newTotalStock: getters.getTotalStock(editingItem.productId) + adjustment,
-            reason: logReason,
-        });
-
-        // Manually update local state to avoid full re-fetch if not desired
-        fetchData('inventory');
-        setEditingItem(null);
-        setLogReason('');
-        setAdjustment(0);
     };
 
     return (
         <div className="p-4 md:p-6 lg:p-8">
             <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">Inventory Management</h1>
             <div className="flex justify-between items-center mb-4">
-                <div className="w-1/3">
+                <div className="w-full md:w-1/3">
                     <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search products or batches..." />
                 </div>
                 <div className="flex space-x-2 p-1 bg-gray-200 dark:bg-gray-700 rounded-lg">
@@ -1516,19 +1543,19 @@ const InventoryManagementPage: React.FC = () => {
                                 <th scope="col" className="px-6 py-3">Status</th>
                             </tr>
                         </thead>
-                         <tbody>
+                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                             {inventorySummary.map(p => {
                                 const isLowStock = p.totalStock < p.lowStockThreshold;
                                 return (
-                                <tr key={p.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
                                     <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{p.name}</td>
                                     <td className="px-6 py-4">{p.sku}</td>
                                     <td className={`px-6 py-4 font-bold ${isLowStock ? 'text-red-500' : 'text-gray-900 dark:text-white'}`}>{p.totalStock}</td>
                                     <td className="px-6 py-4">{p.lowStockThreshold}</td>
-                                    <td className="px-6 py-4">
-                                        {isLowStock && <span className="text-xs font-medium mr-2 px-2.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">Low Stock</span>}
-                                        {p.expiringSoon && !p.expired && <span className="text-xs font-medium mr-2 px-2.5 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">Expiring Soon</span>}
-                                        {p.expired && <span className="text-xs font-medium mr-2 px-2.5 py-0.5 rounded bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300">Expired</span>}
+                                    <td className="px-6 py-4 space-x-2">
+                                        {isLowStock && <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">Low Stock</span>}
+                                        {p.expiringSoon && !p.expired && <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">Expiring Soon</span>}
+                                        {p.expired && <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300">Expired</span>}
                                     </td>
                                 </tr>
                                 );
@@ -1548,9 +1575,9 @@ const InventoryManagementPage: React.FC = () => {
                                 <th scope="col" className="px-6 py-3 text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                             {batchDetails.map(item => (
-                                <tr key={item.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
                                     <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{item.productName}</td>
                                     <td className="px-6 py-4">{item.productSku}</td>
                                     <td className="px-6 py-4">{item.batchNumber}</td>
@@ -1568,19 +1595,20 @@ const InventoryManagementPage: React.FC = () => {
             </div>
             
             {editingItem && (
-                 <Modal isOpen={!!editingItem} onClose={() => setEditingItem(null)} title={`Adjust Stock for ${products.find(p=>p.id === editingItem.productId)?.name} (Batch: ${editingItem.batchNumber})`}>
+                 <Modal isOpen={!!editingItem} onClose={() => setEditingItem(null)} title={`Adjust Stock: ${products.find(p=>p.id === editingItem.productId)?.name}`}>
                     <div className="space-y-4">
-                        <p>Current stock in this batch: <strong>{editingItem.quantity}</strong></p>
+                        <p>Current stock in batch <strong>{editingItem.batchNumber}</strong>: <strong>{editingItem.quantity}</strong></p>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Adjustment</label>
-                            <input type="number" value={adjustment} onChange={e => setAdjustment(parseInt(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                            <input type="number" value={adjustment} onChange={e => setAdjustment(e.target.value === '' ? '' : parseInt(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
                             <p className="text-sm text-gray-500">Use positive numbers to add stock, negative to remove.</p>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason for Adjustment</label>
-                            <input type="text" value={logReason} onChange={e => setLogReason(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                            <input type="text" value={logReason} onChange={e => setLogReason(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
                         </div>
-                        <div className="text-right">
+                        <div className="flex justify-end pt-2 space-x-2">
+                             <button onClick={() => setEditingItem(null)} className="py-2 px-4 border border-gray-300 dark:border-gray-500 rounded-md shadow-sm text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">Cancel</button>
                              <button onClick={handleAdjustStock} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">
                                 Apply Adjustment
                             </button>
@@ -1668,9 +1696,9 @@ const ProductManagementPage: React.FC = () => {
                         <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold} onChange={handleChange} required min="0" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
                     </div>
                 </div>
-                <div className="flex justify-end pt-4">
-                    <button type="button" onClick={onCancel} className="bg-white dark:bg-gray-600 py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">Save Product</button>
+                <div className="flex justify-end pt-4 space-x-2">
+                    <button type="button" onClick={onCancel} className="py-2 px-4 border border-gray-300 dark:border-gray-500 rounded-md shadow-sm text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">Cancel</button>
+                    <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">Save Product</button>
                 </div>
             </form>
         )
@@ -1710,17 +1738,17 @@ const ProductManagementPage: React.FC = () => {
                             <th scope="col" className="px-6 py-3 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                          {sortedData.map(product => (
-                            <tr key={product.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                            <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
                                 <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{product.name}</td>
                                 <td className="px-6 py-4">{product.sku}</td>
                                 <td className="px-6 py-4">{product.category}</td>
                                 <td className="px-6 py-4">${product.price.toFixed(2)}</td>
                                 <td className="px-6 py-4">${product.cost?.toFixed(2) || 'N/A'}</td>
-                                <td className="px-6 py-4 text-right">
-                                    <button onClick={() => openModal(product)} className="text-primary hover:underline mr-4">{icons.edit}</button>
-                                    <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:text-red-700">{icons.trash}</button>
+                                <td className="px-6 py-4 text-right space-x-4">
+                                    <button onClick={() => openModal(product)} className="font-medium text-primary hover:underline">{icons.edit}</button>
+                                    <button onClick={() => handleDelete(product.id)} className="font-medium text-red-500 hover:text-red-700">{icons.trash}</button>
                                 </td>
                             </tr>
                         ))}
@@ -1735,9 +1763,314 @@ const ProductManagementPage: React.FC = () => {
     );
 };
 
-const UserManagementPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">User Management</h1></div>; };
-const SuppliersManagementPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">Supplier Management</h1></div>; };
-const CategoriesManagementPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">Category Management</h1></div>; };
+const UserManagementPage: React.FC = () => {
+    const { users, actions } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+
+    const openModal = (user: User | null = null) => {
+        setEditingUser(user);
+        setIsModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setEditingUser(null);
+        setIsModalOpen(false);
+    };
+
+    const handleSave = async (user: User) => {
+        await actions.saveUser(user);
+        closeModal();
+    };
+
+    const handleDelete = async (userId: string) => {
+        if (window.confirm("Are you sure you want to delete this user?")) {
+            await actions.deleteUser(userId);
+        }
+    };
+    
+    const UserForm: React.FC<{ user: User | null; onSave: (user: User) => void; onCancel: () => void; }> = ({ user, onSave, onCancel }) => {
+        const [formData, setFormData] = useState<User>(user || { id: '', name: '', username: '', role: UserRole.CASHIER, password: '' });
+        const isNew = !user;
+
+        const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+        };
+
+        const handleSubmit = (e: React.FormEvent) => {
+            e.preventDefault();
+            const userToSave: User = { ...formData, id: formData.id || `user-${Date.now()}` };
+            onSave(userToSave);
+        };
+
+        return (
+            <form onSubmit={handleSubmit} className="space-y-4">
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Full Name</label>
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+                        <input type="text" name="username" value={formData.username} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Role</label>
+                        <select name="role" value={formData.role} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600">
+                           {Object.values(UserRole).map(role => <option key={role} value={role}>{role}</option>)}
+                        </select>
+                    </div>
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+                    <input type="password" name="password" value={formData.password} onChange={handleChange} required={isNew} placeholder={isNew ? "Required" : "Leave blank to keep unchanged"} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+
+                <div className="flex justify-end pt-4 space-x-2">
+                    <button type="button" onClick={onCancel} className="py-2 px-4 border border-gray-300 dark:border-gray-500 rounded-md shadow-sm text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">Cancel</button>
+                    <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">Save User</button>
+                </div>
+            </form>
+        );
+    };
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">User Management</h1>
+                <button onClick={() => openModal()} className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary/90">
+                    Add User
+                </button>
+            </div>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" className="px-6 py-3">Name</th>
+                            <th scope="col" className="px-6 py-3">Username</th>
+                            <th scope="col" className="px-6 py-3">Role</th>
+                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {users.map(user => (
+                            <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{user.name}</td>
+                                <td className="px-6 py-4">{user.username}</td>
+                                <td className="px-6 py-4">{user.role}</td>
+                                <td className="px-6 py-4 text-right space-x-4">
+                                    <button onClick={() => openModal(user as User)} className="font-medium text-primary hover:underline">{icons.edit}</button>
+                                    <button onClick={() => handleDelete(user.id)} className="font-medium text-red-500 hover:text-red-700">{icons.trash}</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <Modal isOpen={isModalOpen} onClose={closeModal} title={editingUser ? 'Edit User' : 'Add New User'}>
+                <UserForm user={editingUser} onSave={handleSave} onCancel={closeModal} />
+            </Modal>
+        </div>
+    );
+};
+const SuppliersManagementPage: React.FC = () => {
+    const { suppliers, actions } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+
+    const openModal = (supplier: Supplier | null = null) => {
+        setEditingSupplier(supplier);
+        setIsModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setEditingSupplier(null);
+        setIsModalOpen(false);
+    };
+
+    const handleSave = async (supplier: Supplier) => {
+        await actions.saveSupplier(supplier);
+        closeModal();
+    };
+
+    const handleDelete = async (supplierId: string) => {
+        if (window.confirm("Are you sure you want to delete this supplier?")) {
+            await actions.deleteSupplier(supplierId);
+        }
+    };
+    
+    const SupplierForm: React.FC<{ supplier: Supplier | null; onSave: (supplier: Supplier) => void; onCancel: () => void; }> = ({ supplier, onSave, onCancel }) => {
+        const [formData, setFormData] = useState<Supplier>(supplier || { id: '', name: '', contactPerson: '', email: '', phone: '', address: '' });
+        
+        const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+        };
+
+        const handleSubmit = (e: React.FormEvent) => {
+            e.preventDefault();
+            const supplierToSave: Supplier = { ...formData, id: formData.id || `sup-${Date.now()}` };
+            onSave(supplierToSave);
+        };
+
+        return (
+             <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name</label>
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
+                        <input type="text" name="contactPerson" value={formData.contactPerson} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
+                        <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+                    <input type="email" name="email" value={formData.email} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Address</label>
+                    <input type="text" name="address" value={formData.address} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+
+                <div className="flex justify-end pt-4 space-x-2">
+                    <button type="button" onClick={onCancel} className="py-2 px-4 border border-gray-300 dark:border-gray-500 rounded-md shadow-sm text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">Cancel</button>
+                    <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">Save Supplier</button>
+                </div>
+            </form>
+        );
+    };
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Suppliers</h1>
+                <button onClick={() => openModal()} className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary/90">
+                    Add Supplier
+                </button>
+            </div>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                 <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" className="px-6 py-3">Name</th>
+                            <th scope="col" className="px-6 py-3">Contact Person</th>
+                            <th scope="col" className="px-6 py-3">Email</th>
+                            <th scope="col" className="px-6 py-3">Phone</th>
+                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {suppliers.map(s => (
+                            <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{s.name}</td>
+                                <td className="px-6 py-4">{s.contactPerson}</td>
+                                <td className="px-6 py-4">{s.email}</td>
+                                <td className="px-6 py-4">{s.phone}</td>
+                                <td className="px-6 py-4 text-right space-x-4">
+                                    <button onClick={() => openModal(s)} className="font-medium text-primary hover:underline">{icons.edit}</button>
+                                    <button onClick={() => handleDelete(s.id)} className="font-medium text-red-500 hover:text-red-700">{icons.trash}</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingSupplier ? 'Edit Supplier' : 'Add New Supplier'} size="lg">
+                <SupplierForm supplier={editingSupplier} onSave={handleSave} onCancel={closeModal} />
+            </Modal>
+        </div>
+    );
+};
+const CategoriesManagementPage: React.FC = () => {
+    const { categories, actions } = useStore();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+
+    const openModal = (category: Category | null = null) => {
+        setEditingCategory(category);
+        setIsModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setEditingCategory(null);
+        setIsModalOpen(false);
+    };
+
+    const handleSave = async (category: Category) => {
+        await actions.saveCategory(category);
+        closeModal();
+    };
+
+    const handleDelete = async (categoryId: string) => {
+        if (window.confirm("Are you sure? Products in this category will be moved to 'General'.")) {
+            await actions.deleteCategory(categoryId);
+        }
+    };
+    
+    const CategoryForm: React.FC<{ category: Category | null; onSave: (cat: Category) => void; onCancel: () => void; }> = ({ category, onSave, onCancel }) => {
+        const [name, setName] = useState(category?.name || '');
+        
+        const handleSubmit = (e: React.FormEvent) => {
+            e.preventDefault();
+            onSave({ id: category?.id || `cat-${Date.now()}`, name });
+        };
+
+        return (
+             <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category Name</label>
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                <div className="flex justify-end pt-4 space-x-2">
+                    <button type="button" onClick={onCancel} className="py-2 px-4 border border-gray-300 dark:border-gray-500 rounded-md shadow-sm text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600">Cancel</button>
+                    <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90">Save Category</button>
+                </div>
+            </form>
+        );
+    };
+    
+    return (
+        <div className="p-4 md:p-6 lg:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Categories</h1>
+                <button onClick={() => openModal()} className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary/90">
+                    Add Category
+                </button>
+            </div>
+            <div className="bg-white dark:bg-dark-card shadow-md rounded-lg overflow-x-auto">
+                 <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" className="px-6 py-3">Category Name</th>
+                            <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {categories.map(cat => (
+                            <tr key={cat.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
+                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{cat.name}</td>
+                                <td className="px-6 py-4 text-right space-x-4">
+                                    <button onClick={() => openModal(cat)} className="font-medium text-primary hover:underline">{icons.edit}</button>
+                                    {cat.name !== 'General' && <button onClick={() => handleDelete(cat.id)} className="font-medium text-red-500 hover:text-red-700">{icons.trash}</button>}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+             <Modal isOpen={isModalOpen} onClose={closeModal} title={editingCategory ? 'Edit Category' : 'Add New Category'}>
+                <CategoryForm category={editingCategory} onSave={handleSave} onCancel={closeModal} />
+            </Modal>
+        </div>
+    );
+};
 const ReceiveStockPage: React.FC = () => {
     const { products, suppliers, actions, purchaseOrders, getters, currentUser } = useStore();
     const router = useRouter();
@@ -1916,9 +2249,9 @@ const PurchaseOrdersManagementPage: React.FC = () => {
                             <th scope="col" className="px-6 py-3 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                         {sortedData.map(po => (
-                            <tr key={po.id} className="bg-white dark:bg-dark-card border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                            <tr key={po.id} className="hover:bg-gray-50 dark:hover:bg-gray-600">
                                 <td className="px-6 py-4 font-medium text-primary hover:underline cursor-pointer" onClick={() => router.navigate(`/purchase-orders/${po.id}`)}>{po.poNumber}</td>
                                 <td className="px-6 py-4">{new Date(po.createdAt).toLocaleDateString()}</td>
                                 <td className="px-6 py-4">{po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString() : 'N/A'}</td>
@@ -1930,7 +2263,7 @@ const PurchaseOrdersManagementPage: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4">${po.total.toFixed(2)}</td>
                                 <td className="px-6 py-4 text-right">
-                                    <button onClick={() => router.navigate(`/purchase-orders/${po.id}`)} className="text-primary hover:underline">View</button>
+                                    <button onClick={() => router.navigate(`/purchase-orders/${po.id}`)} className="font-medium text-primary hover:underline">View</button>
                                 </td>
                             </tr>
                         ))}
@@ -2054,7 +2387,7 @@ const PurchaseOrderFormPage: React.FC = () => {
                         <div className="relative mb-4">
                             <SearchBar value={productSearch} onChange={setProductSearch} placeholder="Search to add products..."/>
                             {searchResults.length > 0 && (
-                                <div className="absolute z-10 w-full bg-white dark:bg-dark-card shadow-lg rounded-md mt-1 max-h-60 overflow-y-auto">
+                                <div className="absolute z-10 w-full bg-white dark:bg-dark-card shadow-lg rounded-md mt-1 max-h-60 overflow-y-auto border dark:border-gray-700">
                                     {searchResults.map(p => <div key={p.id} onClick={() => handleAddItem(p)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">{p.name} ({p.sku})</div>)}
                                 </div>
                             )}
@@ -2259,7 +2592,73 @@ const RefundPage: React.FC = () => {
         </div>
     );
 };
-const SettingsPage: React.FC = () => { /* ... Placeholder ... */ return <div className="p-8"><h1 className="text-2xl font-bold">Settings</h1></div>; };
+const SettingsPage: React.FC = () => {
+    const { settings, actions } = useStore();
+    const [formData, setFormData] = useState(settings);
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        setFormData(settings);
+    }, [settings]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setFormData(prev => ({...prev, [e.target.name]: e.target.value}));
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'appLogo' | 'appIcon') => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setFormData(prev => ({...prev, [field]: reader.result as string}));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleSave = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSaving(true);
+        await actions.saveSettings(formData);
+        setIsSaving(false);
+        alert('Settings saved successfully!');
+    };
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8 max-w-2xl mx-auto">
+            <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">Application Settings</h1>
+            <form onSubmit={handleSave} className="bg-white dark:bg-dark-card shadow-md rounded-lg p-8 space-y-6">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Application Name</label>
+                    <input type="text" name="appName" value={formData.appName} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Currency Symbol</label>
+                    <input type="text" name="currencySymbol" value={formData.currencySymbol} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm dark:bg-gray-700 dark:border-gray-600" />
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Application Logo</label>
+                        <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'appLogo')} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"/>
+                        {formData.appLogo && <img src={formData.appLogo} alt="Logo Preview" className="mt-4 h-16 border p-1 rounded" />}
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Application Icon</label>
+                        <input type="file" accept="image/png, image/x-icon" onChange={(e) => handleFileChange(e, 'appIcon')} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"/>
+                        {formData.appIcon && <img src={formData.appIcon} alt="Icon Preview" className="mt-4 h-16 w-16 border p-1 rounded" />}
+                    </div>
+                </div>
+                 <div className="pt-5">
+                    <div className="flex justify-end">
+                        <button type="submit" disabled={isSaving} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary hover:bg-primary/90 disabled:bg-gray-400">
+                           {isSaving ? 'Saving...' : 'Save Settings'}
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    );
+};
 
 // --- MAIN APP COMPONENT --- //
 const App: React.FC = () => {
@@ -2351,12 +2750,9 @@ const App: React.FC = () => {
                     </ProtectedRoute>
                 );
             default:
+                // Redirect to dashboard if route is unknown
                 router.navigate('/dashboard');
-                return (
-                    <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER]}>
-                        <DashboardPage />
-                    </ProtectedRoute>
-                );
+                return null;
         }
     };
 
