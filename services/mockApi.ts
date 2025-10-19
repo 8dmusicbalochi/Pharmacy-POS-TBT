@@ -34,24 +34,24 @@ const getFutureDate = (days: number) => {
 }
 
 const getInitialProducts = (): Product[] => [
-  { id: 'p1', sku: 'MED-001', name: 'Paracetamol 500mg', price: 5.99, cost: 2.50, category: 'Medicine', lowStockThreshold: 20, supplierId: 'sup-1', supplierName: 'PharmaCore Inc.', manufacturer: 'Global Pharma', description: '500mg tablets for pain relief.' },
-  { id: 'p2', sku: 'MED-002', name: 'Ibuprofen 200mg', price: 8.50, cost: 4.00, category: 'Medicine', lowStockThreshold: 20, supplierId: 'sup-1', supplierName: 'PharmaCore Inc.', manufacturer: 'Global Pharma', description: '200mg anti-inflammatory tablets.' },
-  { id: 'p3', sku: 'PC-001', name: 'Organic Shampoo', price: 3.25, cost: 1.10, category: 'Personal Care', lowStockThreshold: 10, supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.', manufacturer: 'NatureWell' },
-  { id: 'p4', sku: 'GEN-001', name: 'Hand Sanitizer', price: 4.00, cost: 1.50, category: 'General', lowStockThreshold: 30, supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.', manufacturer: 'CleanHands Co.' },
-  { id: 'p5', sku: 'MED-003', name: 'Aspirin 100mg', price: 15, cost: 7.20, category: 'Medicine', lowStockThreshold: 20, supplierId: 'sup-1', supplierName: 'PharmaCore Inc.', manufacturer: 'HealthCorp' },
+  { id: 'p1', sku: 'MED-001', name: 'Paracetamol 500mg', price: 5.99, cost: 2.50, category: 'Medicine', lowStockThreshold: 20, manufacturer: 'Global Pharma', description: '500mg tablets for pain relief.' },
+  { id: 'p2', sku: 'MED-002', name: 'Ibuprofen 200mg', price: 8.50, cost: 4.00, category: 'Medicine', lowStockThreshold: 20, manufacturer: 'Global Pharma', description: '200mg anti-inflammatory tablets.' },
+  { id: 'p3', sku: 'PC-001', name: 'Organic Shampoo', price: 3.25, cost: 1.10, category: 'Personal Care', lowStockThreshold: 10, manufacturer: 'NatureWell' },
+  { id: 'p4', sku: 'GEN-001', name: 'Hand Sanitizer', price: 4.00, cost: 1.50, category: 'General', lowStockThreshold: 30, manufacturer: 'CleanHands Co.' },
+  { id: 'p5', sku: 'MED-003', name: 'Aspirin 100mg', price: 15, cost: 7.20, category: 'Medicine', lowStockThreshold: 20, manufacturer: 'HealthCorp' },
   { id: 'p6', sku: 'GEN-002', name: 'Digital Thermometer', price: 15.00, cost: 5.00, category: 'General', lowStockThreshold: 10, manufacturer: 'MedTech' },
-  { id: 'p7', sku: 'PC-002', name: 'Protein Bar', price: 2.50, cost: 0.80, category: 'Personal Care', lowStockThreshold: 50, supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.', manufacturer: 'GoodFoods' },
+  { id: 'p7', sku: 'PC-002', name: 'Protein Bar', price: 2.50, cost: 0.80, category: 'Personal Care', lowStockThreshold: 50, manufacturer: 'GoodFoods' },
 ];
 
 const getInitialInventory = (): InventoryItem[] => [
-    { id: 'inv1', productId: 'p1', quantity: 100, expiryDate: getFutureDate(365), addedDate: new Date().toISOString() },
-    { id: 'inv2', productId: 'p1', quantity: 50, expiryDate: getFutureDate(180), addedDate: new Date().toISOString() },
-    { id: 'inv3', productId: 'p2', quantity: 80, expiryDate: getFutureDate(25), addedDate: new Date().toISOString() },
-    { id: 'inv4', productId: 'p3', quantity: 40, expiryDate: getFutureDate(-10), addedDate: new Date().toISOString() },
-    { id: 'inv5', productId: 'p4', quantity: 120, expiryDate: getFutureDate(180), addedDate: new Date().toISOString() },
-    { id: 'inv6', productId: 'p5', quantity: 100, expiryDate: getFutureDate(700), addedDate: new Date().toISOString() },
-    { id: 'inv7', productId: 'p6', quantity: 50, addedDate: new Date().toISOString() },
-    { id: 'inv8', productId: 'p7', quantity: 200, expiryDate: getFutureDate(90), addedDate: new Date().toISOString() },
+    { id: 'inv1', productId: 'p1', quantity: 100, batchNumber: 'PC-2401', expiryDate: getFutureDate(365), addedDate: new Date().toISOString(), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
+    { id: 'inv2', productId: 'p1', quantity: 50, batchNumber: 'PC-2311', expiryDate: getFutureDate(180), addedDate: new Date().toISOString(), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
+    { id: 'inv3', productId: 'p2', quantity: 80, batchNumber: 'IB-A59', expiryDate: getFutureDate(25), addedDate: new Date().toISOString(), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
+    { id: 'inv4', productId: 'p3', quantity: 40, batchNumber: 'OS-0323', expiryDate: getFutureDate(-10), addedDate: new Date().toISOString(), supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.' },
+    { id: 'inv5', productId: 'p4', quantity: 120, batchNumber: 'HS-C12', expiryDate: getFutureDate(180), addedDate: new Date().toISOString(), supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.' },
+    { id: 'inv6', productId: 'p5', quantity: 100, batchNumber: 'AS-B01', expiryDate: getFutureDate(700), addedDate: new Date().toISOString(), supplierId: 'sup-1', supplierName: 'PharmaCore Inc.' },
+    { id: 'inv7', productId: 'p6', quantity: 50, batchNumber: 'DT-X5', addedDate: new Date().toISOString() },
+    { id: 'inv8', productId: 'p7', quantity: 200, batchNumber: 'PB-2403', expiryDate: getFutureDate(90), addedDate: new Date().toISOString(), supplierId: 'sup-2', supplierName: 'Wellness Supplies Ltd.' },
 ];
 
 const getInitialTasks = (): Task[] => [
@@ -356,12 +356,12 @@ const api = {
             const oldSupplierName = suppliers[index].name;
             suppliers[index] = supplier;
              if (oldSupplierName !== supplier.name) {
-              const products = api.getProducts();
-              const updatedProducts = products.map(p => 
-                  p.supplierName === oldSupplierName ? { ...p, supplierName: supplier.name } : p
-              );
-              localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updatedProducts));
-          }
+                const inventory = api.getInventory();
+                const updatedInventory = inventory.map(i =>
+                    i.supplierName === oldSupplierName ? { ...i, supplierName: supplier.name } : i
+                );
+                localStorage.setItem(INVENTORY_KEY, JSON.stringify(updatedInventory));
+            }
         } else {
             suppliers.push(supplier);
         }
@@ -373,15 +373,15 @@ const api = {
         const updatedSuppliers = suppliers.filter(s => s.id !== supplierId);
         localStorage.setItem(SUPPLIERS_KEY, JSON.stringify(updatedSuppliers));
         
-        const products = api.getProducts();
-        const updatedProducts = products.map(p => {
-            if (p.supplierId === supplierId) {
-                const { supplierId, supplierName, ...rest } = p;
+        const inventory = api.getInventory();
+        const updatedInventory = inventory.map(i => {
+            if (i.supplierId === supplierId) {
+                const { supplierId, supplierName, ...rest } = i;
                 return rest;
             }
-            return p;
+            return i;
         });
-        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updatedProducts));
+        localStorage.setItem(INVENTORY_KEY, JSON.stringify(updatedInventory));
     },
 
     // TASKS

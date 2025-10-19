@@ -39,8 +39,6 @@ export interface Product {
     cost?: number;
     category: string;
     lowStockThreshold: number;
-    supplierId?: string;
-    supplierName?: string;
     manufacturer?: string;
     description?: string;
 }
@@ -49,8 +47,11 @@ export interface InventoryItem {
   id: string;
   productId: string;
   quantity: number;
+  batchNumber: string;
   expiryDate?: string;
   addedDate: string;
+  supplierId?: string;
+  supplierName?: string;
 }
 
 export interface CartItem extends Product {

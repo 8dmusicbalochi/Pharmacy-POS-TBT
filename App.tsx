@@ -1188,7 +1188,7 @@ const ProductModal: React.FC<{
     product: Product | null;
     prefilledSku?: string;
 }> = ({ isOpen, onClose, product, prefilledSku }) => {
-    const { saveProduct, categories, suppliers } = useStore();
+    const { saveProduct, categories } = useStore();
     const [formData, setFormData] = useState<Partial<Product>>({});
 
     useEffect(() => {
@@ -1203,13 +1203,12 @@ const ProductModal: React.FC<{
                     cost: 0,
                     category: categories[0]?.name || '',
                     lowStockThreshold: 10,
-                    supplierId: suppliers[0]?.id || '',
                     manufacturer: '',
                     description: ''
                 });
             }
         }
-    }, [isOpen, product, prefilledSku, categories, suppliers]);
+    }, [isOpen, product, prefilledSku, categories]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -1218,14 +1217,12 @@ const ProductModal: React.FC<{
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const supplier = suppliers.find(s => s.id === formData.supplierId);
         const productToSave = {
             ...formData,
             id: formData.id || `prod-${Date.now()}`,
             price: parseFloat(String(formData.price || 0)),
             cost: parseFloat(String(formData.cost || 0)),
             lowStockThreshold: parseInt(String(formData.lowStockThreshold || 0)),
-            supplierName: supplier?.name
         } as Product;
         await saveProduct(productToSave);
         onClose();
@@ -1270,18 +1267,9 @@ const ProductModal: React.FC<{
                         <input type="number" name="cost" step="0.01" value={formData.cost || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} />
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">Low Stock Threshold *</label>
-                        <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Supplier</label>
-                         <select name="supplierId" value={formData.supplierId || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES}>
-                            <option value="">None</option>
-                           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
+                <div>
+                    <label className="block text-sm font-medium">Low Stock Threshold *</label>
+                    <input type="number" name="lowStockThreshold" value={formData.lowStockThreshold || ''} onChange={handleChange} className={INPUT_FIELD_CLASSES} required />
                 </div>
                 <div className="pt-4 flex justify-end gap-2">
                     <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
@@ -1305,8 +1293,7 @@ const ProductManagementPage: React.FC = () => {
         return productsWithStock.filter(p => 
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.supplierName?.toLowerCase().includes(searchTerm.toLowerCase())
+            p.category.toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [productsWithStock, searchTerm]);
     
@@ -1375,7 +1362,6 @@ const ProductManagementPage: React.FC = () => {
                                 <SortableHeader label="Price" sortKey="price" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
                                 <SortableHeader label="Cost" sortKey="cost" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
                                 <SortableHeader label="Total Stock" sortKey="totalStock" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
                                 <th className="px-4 py-3">Actions</th>
                             </tr>
                         </thead>
@@ -1388,7 +1374,6 @@ const ProductManagementPage: React.FC = () => {
                                     <td className="px-4 py-3 text-right">{p.price.toFixed(2)}</td>
                                     <td className="px-4 py-3 text-right">{p.cost?.toFixed(2) || 'N/A'}</td>
                                     <td className={`px-4 py-3 text-right font-bold ${p.totalStock <= p.lowStockThreshold ? 'text-red-500' : ''}`}>{p.totalStock}</td>
-                                    <td className="px-4 py-3">{p.supplierName || 'N/A'}</td>
                                     <td className="px-4 py-3 flex gap-2">
                                         <button onClick={() => openEditModal(p)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</button>
                                         <button onClick={() => openDeleteConfirm(p)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
@@ -1422,25 +1407,33 @@ const InventoryModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
 }> = ({ isOpen, onClose }) => {
-    const { products, saveInventoryItem } = useStore();
+    const { products, suppliers, saveInventoryItem } = useStore();
     const [productId, setProductId] = useState<string>('');
     const [quantity, setQuantity] = useState<string>('');
     const [expiryDate, setExpiryDate] = useState<string>('');
+    const [batchNumber, setBatchNumber] = useState<string>('');
+    const [supplierId, setSupplierId] = useState<string>('');
 
     useEffect(() => {
         if(isOpen) {
             setProductId(products[0]?.id || '');
             setQuantity('');
             setExpiryDate('');
+            setBatchNumber('');
+            setSupplierId('');
         }
     }, [isOpen, products]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        const supplier = suppliers.find(s => s.id === supplierId);
         const item: Omit<InventoryItem, 'id' | 'addedDate'> = {
             productId,
             quantity: parseInt(quantity),
+            batchNumber,
             expiryDate: expiryDate || undefined,
+            supplierId: supplierId || undefined,
+            supplierName: supplier?.name || undefined,
         };
         await saveInventoryItem({
             ...item,
@@ -1459,13 +1452,28 @@ const InventoryModal: React.FC<{
                         {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
                     </select>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium">Quantity *</label>
-                    <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className={INPUT_FIELD_CLASSES} required min="1" />
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Quantity *</label>
+                        <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className={INPUT_FIELD_CLASSES} required min="1" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Batch Number *</label>
+                        <input type="text" value={batchNumber} onChange={e => setBatchNumber(e.target.value)} className={INPUT_FIELD_CLASSES} required />
+                    </div>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium">Expiry Date</label>
-                    <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className={INPUT_FIELD_CLASSES} />
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Expiry Date</label>
+                        <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className={INPUT_FIELD_CLASSES} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Supplier</label>
+                        <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className={INPUT_FIELD_CLASSES}>
+                            <option value="">None</option>
+                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
                 </div>
                  <div className="pt-4 flex justify-end gap-2">
                     <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
@@ -1495,7 +1503,9 @@ const InventoryManagementPage: React.FC = () => {
     const filteredInventory = useMemo(() => {
         return inventoryWithProductInfo.filter(item => 
             item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.productSku.toLowerCase().includes(searchTerm.toLowerCase())
+            item.productSku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.supplierName?.toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [inventoryWithProductInfo, searchTerm]);
 
@@ -1515,7 +1525,9 @@ const InventoryManagementPage: React.FC = () => {
                         <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                             <tr>
                                 <SortableHeader label="Product" sortKey="productName" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Batch #" sortKey="batchNumber" sortConfig={sortConfig} requestSort={requestSort} />
                                 <SortableHeader label="Quantity" sortKey="quantity" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                                <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
                                 <SortableHeader label="Expiry Date" sortKey="expiryDate" sortConfig={sortConfig} requestSort={requestSort} />
                                 <SortableHeader label="Date Added" sortKey="addedDate" sortConfig={sortConfig} requestSort={requestSort} />
                             </tr>
@@ -1529,7 +1541,9 @@ const InventoryManagementPage: React.FC = () => {
                                             {item.productName}
                                             <span className="block text-xs text-gray-400">{item.productSku}</span>
                                         </td>
+                                        <td className="px-4 py-3">{item.batchNumber}</td>
                                         <td className="px-4 py-3 text-right">{item.quantity}</td>
+                                        <td className="px-4 py-3">{item.supplierName || 'N/A'}</td>
                                         <td className={`px-4 py-3 ${expiryStatus.className}`}>{expiryStatus.text}</td>
                                         <td className="px-4 py-3">{new Date(item.addedDate).toLocaleDateString()}</td>
                                     </tr>
@@ -1768,7 +1782,7 @@ const SalesHistoryPage: React.FC = () => {
 };
 
 const ReportsPage: React.FC = () => {
-    const { sales, productsWithStock, categories, suppliers, settings } = useStore();
+    const { sales, productsWithStock, settings } = useStore();
 
     const salesSummary = useMemo(() => {
         const totalRevenue = sales.reduce((sum, s) => sum + s.total, 0);
@@ -1777,11 +1791,11 @@ const ReportsPage: React.FC = () => {
         return { totalRevenue, totalProfit, averageSale };
     }, [sales]);
 
-    const salesBy = (key: 'category' | 'supplierName') => {
+    const salesByCategory = useMemo(() => {
         const map = new Map<string, { revenue: number, profit: number, units: number }>();
         sales.forEach(sale => {
             sale.items.forEach(item => {
-                const itemKey = item[key] || 'N/A';
+                const itemKey = item['category'] || 'N/A';
                 const current = map.get(itemKey) || { revenue: 0, profit: 0, units: 0 };
                 const itemProfit = (item.price - (item.cost || 0)) * item.quantity;
                 current.revenue += item.price * item.quantity;
@@ -1791,10 +1805,8 @@ const ReportsPage: React.FC = () => {
             });
         });
         return Array.from(map.entries()).map(([name, data]) => ({ name, ...data })).sort((a,b) => b.revenue - a.revenue);
-    };
+    }, [sales]);
 
-    const salesByCategory = useMemo(() => salesBy('category'), [sales]);
-    const salesBySupplier = useMemo(() => salesBy('supplierName'), [sales]);
 
     const itemSalesReport = useMemo(() => {
         const map = new Map<string, { name: string; sku: string; units: number, revenue: number, profit: number }>();
@@ -1810,14 +1822,6 @@ const ReportsPage: React.FC = () => {
         return Array.from(map.values()).sort((a,b) => b.revenue - a.revenue);
     }, [sales]);
 
-    const currentStockReport = useMemo(() => {
-        return productsWithStock.map(p => ({
-            ...p,
-            stockValueCost: (p.cost || 0) * p.totalStock,
-            stockValueRetail: p.price * p.totalStock,
-        }));
-    }, [productsWithStock]);
-
     const ProgressBar: React.FC<{ value: number, max: number }> = ({ value, max }) => {
         const percentage = max > 0 ? (value / max) * 100 : 0;
         return <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5"><div className="bg-primary h-2.5 rounded-full" style={{ width: `${percentage}%`}}></div></div>
@@ -1832,34 +1836,18 @@ const ReportsPage: React.FC = () => {
                 <StatCard title="Average Sale Value" value={`${settings.currencySymbol}${salesSummary.averageSale.toFixed(2)}`} icon={icons.sales} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold mb-4">Sales by Category</h2>
-                    <div className="space-y-3 max-h-80 overflow-y-auto">
-                        {salesByCategory.map(cat => (
-                            <div key={cat.name}>
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span>{cat.name}</span>
-                                    <span className="font-semibold">{settings.currencySymbol}{cat.revenue.toFixed(2)}</span>
-                                </div>
-                                <ProgressBar value={cat.revenue} max={salesByCategory[0].revenue} />
+            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                <h2 className="text-xl font-semibold mb-4">Sales by Category</h2>
+                <div className="space-y-3 max-h-80 overflow-y-auto">
+                    {salesByCategory.map(cat => (
+                        <div key={cat.name}>
+                            <div className="flex justify-between text-sm mb-1">
+                                <span>{cat.name}</span>
+                                <span className="font-semibold">{settings.currencySymbol}{cat.revenue.toFixed(2)}</span>
                             </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                    <h2 className="text-xl font-semibold mb-4">Sales by Supplier</h2>
-                     <div className="space-y-3 max-h-80 overflow-y-auto">
-                        {salesBySupplier.map(sup => (
-                            <div key={sup.name}>
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span>{sup.name}</span>
-                                    <span className="font-semibold">{settings.currencySymbol}{sup.revenue.toFixed(2)}</span>
-                                </div>
-                                <ProgressBar value={sup.revenue} max={salesBySupplier[0]?.revenue || 0} />
-                            </div>
-                        ))}
-                    </div>
+                            <ProgressBar value={cat.revenue} max={salesByCategory[0].revenue} />
+                        </div>
+                    ))}
                 </div>
             </div>
             
