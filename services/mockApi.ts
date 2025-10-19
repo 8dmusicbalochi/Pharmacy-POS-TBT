@@ -1,4 +1,4 @@
-import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod } from '../types';
+import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod, PurchaseOrder, PurchaseOrderStatus } from '../types';
 
 const USERS_KEY = 'pharmacy_users';
 const PRODUCTS_KEY = 'pharmacy_products';
@@ -9,6 +9,7 @@ const SETTINGS_KEY = 'pharmacy_settings';
 const CATEGORIES_KEY = 'pharmacy_categories';
 const SUPPLIERS_KEY = 'pharmacy_suppliers';
 const TASKS_KEY = 'pharmacy_tasks';
+const PURCHASE_ORDERS_KEY = 'pharmacy_purchase_orders';
 
 const getInitialUsers = (): User[] => [
   { id: 'u1', username: 'admin', password: 'password', role: UserRole.SUPER_ADMIN, name: 'Admin User' },
@@ -92,6 +93,41 @@ const getInitialTasks = (): Task[] => [
         createdAt: new Date().toISOString(),
     }
 ]
+
+const getInitialPurchaseOrders = (): PurchaseOrder[] => [
+    {
+        id: 'po-1',
+        poNumber: 'PO-2024-001',
+        supplierId: 'sup-1',
+        supplierName: 'PharmaCore Inc.',
+        items: [
+            { productId: 'p1', productName: 'Paracetamol 500mg', productSku: 'MED-001', quantityOrdered: 200, cost: 2.50 },
+            { productId: 'p5', productName: 'Aspirin 100mg', productSku: 'MED-003', quantityOrdered: 150, cost: 7.20 },
+        ],
+        status: PurchaseOrderStatus.SUBMITTED,
+        createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
+        submittedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(), // 9 days ago
+        expectedDeliveryDate: getFutureDate(5),
+        notes: 'Urgent restock request.',
+        subtotal: (200 * 2.50) + (150 * 7.20),
+        total: (200 * 2.50) + (150 * 7.20),
+    },
+    {
+        id: 'po-2',
+        poNumber: 'PO-2024-002',
+        supplierId: 'sup-2',
+        supplierName: 'Wellness Supplies Ltd.',
+        items: [
+            { productId: 'p3', productName: 'Organic Shampoo', productSku: 'PC-001', quantityOrdered: 100, cost: 1.10 },
+        ],
+        status: PurchaseOrderStatus.PENDING,
+        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+        expectedDeliveryDate: getFutureDate(15),
+        notes: '',
+        subtotal: 100 * 1.10,
+        total: 100 * 1.10,
+    }
+];
 
 // Helper to get a random element from an array
 const getRandomElement = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
@@ -215,6 +251,9 @@ const seedData = () => {
   if (!localStorage.getItem(TASKS_KEY)) {
     localStorage.setItem(TASKS_KEY, JSON.stringify(getInitialTasks()));
   }
+  if (!localStorage.getItem(PURCHASE_ORDERS_KEY)) {
+    localStorage.setItem(PURCHASE_ORDERS_KEY, JSON.stringify(getInitialPurchaseOrders()));
+  }
 };
 
 seedData();
@@ -312,6 +351,40 @@ const api = {
       inventory.push(item);
     }
     localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory));
+    return item;
+  },
+  receiveStockAndUpdatePO: (item: InventoryItem): InventoryItem => {
+    // 1. Save the inventory item
+    api.saveInventoryItem(item);
+
+    // 2. If it's linked to a PO, update the PO status
+    if (item.purchaseOrderId) {
+        const po = api.getPurchaseOrders().find(p => p.id === item.purchaseOrderId);
+        if (po) {
+            const allReceivedItemsForPO = api.getInventory().filter(i => i.purchaseOrderId === po.id);
+            
+            let allItemsFullyReceived = true;
+
+            for (const poItem of po.items) {
+                const totalReceivedForProduct = allReceivedItemsForPO
+                    .filter(i => i.productId === poItem.productId)
+                    .reduce((sum, current) => sum + current.quantity, 0);
+
+                if (totalReceivedForProduct < poItem.quantityOrdered) {
+                    allItemsFullyReceived = false;
+                }
+            }
+            
+            if (allReceivedItemsForPO.length > 0) {
+                 if (allItemsFullyReceived) {
+                    po.status = PurchaseOrderStatus.RECEIVED;
+                } else {
+                    po.status = PurchaseOrderStatus.PARTIALLY_RECEIVED;
+                }
+                api.savePurchaseOrder(po);
+            }
+        }
+    }
     return item;
   },
 
@@ -492,6 +565,26 @@ const api = {
         let tasks = api.getTasks();
         tasks = tasks.filter(t => t.id !== taskId);
         localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+    },
+    // PURCHASE ORDERS
+    getPurchaseOrders: (): PurchaseOrder[] => {
+        return JSON.parse(localStorage.getItem(PURCHASE_ORDERS_KEY) || '[]').sort((a: PurchaseOrder, b: PurchaseOrder) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    },
+    savePurchaseOrder: (po: PurchaseOrder): PurchaseOrder => {
+        const pos = api.getPurchaseOrders();
+        const index = pos.findIndex(p => p.id === po.id);
+        if (index !== -1) {
+            pos[index] = po;
+        } else {
+            pos.unshift(po);
+        }
+        localStorage.setItem(PURCHASE_ORDERS_KEY, JSON.stringify(pos));
+        return po;
+    },
+    deletePurchaseOrder: (poId: string): void => {
+        let pos = api.getPurchaseOrders();
+        pos = pos.filter(p => p.id !== poId);
+        localStorage.setItem(PURCHASE_ORDERS_KEY, JSON.stringify(pos));
     },
 };
 

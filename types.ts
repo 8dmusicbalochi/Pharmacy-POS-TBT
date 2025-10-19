@@ -9,6 +9,38 @@ export enum PaymentMethod {
   CARD = 'Card',
 }
 
+export enum PurchaseOrderStatus {
+  PENDING = 'Pending',
+  SUBMITTED = 'Submitted',
+  SHIPPED = 'Shipped',
+  PARTIALLY_RECEIVED = 'Partially Received',
+  RECEIVED = 'Received',
+  CANCELLED = 'Cancelled',
+}
+
+export interface PurchaseOrderItem {
+  productId: string;
+  productName: string;
+  productSku: string;
+  quantityOrdered: number;
+  cost: number; // Cost per item
+}
+
+export interface PurchaseOrder {
+  id: string;
+  poNumber: string;
+  supplierId: string;
+  supplierName: string;
+  items: PurchaseOrderItem[];
+  status: PurchaseOrderStatus;
+  createdAt: string;
+  submittedAt?: string;
+  expectedDeliveryDate?: string;
+  notes?: string;
+  subtotal: number;
+  total: number;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -52,6 +84,7 @@ export interface InventoryItem {
   addedDate: string;
   supplierId?: string;
   supplierName?: string;
+  purchaseOrderId?: string;
 }
 
 export interface CartItem extends Product {

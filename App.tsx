@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useMemo, ReactNode, useRef } from 'react';
-import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem, Task } from './types';
+import { User, UserRole, Product, CartItem, Sale, AuditLog, AppSettings, Category, PaymentMethod, Supplier, InventoryItem, Task, PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus } from './types';
 import mockApi from './services/mockApi';
 
 // Declare the html5-qrcode library which is loaded from a script tag
@@ -14,6 +14,7 @@ const icons = {
     inventory: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>,
     products: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-5 5a2 2 0 01-2.828 0l-7-7A2 2 0 013 8v-3c0-1.1.9-2 2-2z" /></svg>,
     suppliers: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m-1 4h1m5-4h1m-1 4h1" /></svg>,
+    purchaseOrder: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>,
     sales: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
     reports: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
     users: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.124-1.282-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.124-1.282.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
@@ -168,12 +169,14 @@ type StoreContextType = {
     settings: AppSettings;
     categories: Category[];
     suppliers: Supplier[];
+    purchaseOrders: PurchaseOrder[];
     refreshData: () => void;
     saveUser: (user: User) => Promise<void>;
     deleteUser: (userId: string) => Promise<void>;
     saveProduct: (product: Product) => Promise<Product>;
     deleteProduct: (productId: string) => Promise<void>;
     saveInventoryItem: (item: InventoryItem) => Promise<void>;
+    receiveStockAndUpdatePO: (item: InventoryItem) => Promise<void>;
     addSale: (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => Promise<Sale>;
     addAuditLog: (log: Omit<AuditLog, 'id'>) => Promise<void>;
     saveTask: (task: Task) => Promise<void>;
@@ -183,6 +186,8 @@ type StoreContextType = {
     deleteCategory: (categoryId: string) => Promise<void>;
     saveSupplier: (supplier: Supplier) => Promise<void>;
     deleteSupplier: (supplierId: string) => Promise<void>;
+    savePurchaseOrder: (po: PurchaseOrder) => Promise<void>;
+    deletePurchaseOrder: (poId: string) => Promise<void>;
     bulkAddProducts: (products: Omit<Product, 'id'>[]) => Promise<{ added: number; updated: number }>;
 };
 
@@ -198,6 +203,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const [settings, setSettings] = useState<AppSettings>({ appName: 'Pharmasist', currencySymbol: '$' });
     const [categories, setCategories] = useState<Category[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+    const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
 
     const refreshData = useCallback(() => {
         setUsers(mockApi.getUsers());
@@ -209,6 +215,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         setSettings(mockApi.getSettings());
         setCategories(mockApi.getCategories());
         setSuppliers(mockApi.getSuppliers());
+        setPurchaseOrders(mockApi.getPurchaseOrders());
     }, []);
 
     useEffect(() => {
@@ -235,6 +242,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const saveProduct = async (product: Product) => { const saved = mockApi.saveProduct(product); refreshData(); return saved; };
     const deleteProduct = async (productId: string) => { mockApi.deleteProduct(productId); refreshData(); }
     const saveInventoryItem = async (item: InventoryItem) => { mockApi.saveInventoryItem(item); refreshData(); }
+    const receiveStockAndUpdatePO = async (item: InventoryItem) => { mockApi.receiveStockAndUpdatePO(item); refreshData(); };
     const addSale = async (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => { const newSale = mockApi.addSale(sale); refreshData(); return newSale; }
     const addAuditLog = async (log: Omit<AuditLog, 'id'>) => { mockApi.addAuditLog(log); refreshData(); };
     const saveTask = async (task: Task) => { mockApi.saveTask(task); refreshData(); };
@@ -244,11 +252,13 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const deleteCategory = async (categoryId: string) => { mockApi.deleteCategory(categoryId); refreshData(); };
     const saveSupplier = async (supplier: Supplier) => { mockApi.saveSupplier(supplier); refreshData(); };
     const deleteSupplier = async (supplierId: string) => { mockApi.deleteSupplier(supplierId); refreshData(); };
+    const savePurchaseOrder = async (po: PurchaseOrder) => { mockApi.savePurchaseOrder(po); refreshData(); };
+    const deletePurchaseOrder = async (poId: string) => { mockApi.deletePurchaseOrder(poId); refreshData(); };
     const bulkAddProducts = async (products: Omit<Product, 'id'>[]) => { const result = mockApi.bulkAddProducts(products); refreshData(); return result; };
 
 
     return (
-        <StoreContext.Provider value={{ users, products, productsWithStock, inventory, sales, auditLogs, tasks, settings, categories, suppliers, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, saveInventoryItem, addSale, addAuditLog, saveTask, deleteTask, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, bulkAddProducts }}>
+        <StoreContext.Provider value={{ users, products, productsWithStock, inventory, sales, auditLogs, tasks, settings, categories, suppliers, purchaseOrders, refreshData, saveUser, deleteUser, saveProduct, deleteProduct, saveInventoryItem, receiveStockAndUpdatePO, addSale, addAuditLog, saveTask, deleteTask, saveSettings, saveCategory, deleteCategory, saveSupplier, deleteSupplier, savePurchaseOrder, deletePurchaseOrder, bulkAddProducts }}>
             {children}
         </StoreContext.Provider>
     );
@@ -1480,9 +1490,12 @@ const InventoryManagementPage: React.FC = () => {
 
 // --- Receive Stock Page --- //
 const ReceiveStockPage: React.FC = () => {
-    const { products, suppliers, categories, saveProduct, saveInventoryItem, addAuditLog, productsWithStock } = useStore();
+    const { products, suppliers, categories, saveProduct, addAuditLog, productsWithStock, purchaseOrders, receiveStockAndUpdatePO, inventory } = useStore();
     const { user } = useAuth();
     
+    const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+    const [selectedPOItem, setSelectedPOItem] = useState<PurchaseOrderItem | null>(null);
+
     const [skuSearch, setSkuSearch] = useState('');
     const [productFound, setProductFound] = useState<Product | null>(null);
     const [isNewProduct, setIsNewProduct] = useState(false);
@@ -1500,8 +1513,49 @@ const ReceiveStockPage: React.FC = () => {
         quantity: '',
         batchNumber: '',
         expiryDate: '',
-        supplierId: ''
+        supplierId: '',
+        purchaseOrderId: '',
     });
+
+    const openPurchaseOrders = useMemo(() => {
+        return purchaseOrders.filter(po => 
+            po.status === PurchaseOrderStatus.SUBMITTED || 
+            po.status === PurchaseOrderStatus.SHIPPED ||
+            po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+        );
+    }, [purchaseOrders]);
+
+    const handlePOSelect = (poId: string) => {
+        const po = purchaseOrders.find(p => p.id === poId);
+        if (po) {
+            setSelectedPO(po);
+            handleReset(); // Clear the form
+        } else {
+            setSelectedPO(null);
+        }
+    };
+    
+    const handleReceivePOItem = (item: PurchaseOrderItem) => {
+        const product = products.find(p => p.id === item.productId);
+        if (product && selectedPO) {
+            setSelectedPOItem(item);
+            setProductFound(product);
+            setProductData(product);
+            setIsNewProduct(false);
+            setIsProductLocked(true);
+            
+            const totalReceived = inventory.filter(i => i.purchaseOrderId === selectedPO.id && i.productId === item.productId).reduce((sum, i) => sum + i.quantity, 0);
+            const remainingQty = item.quantityOrdered - totalReceived;
+
+            setInventoryData(prev => ({
+                ...prev,
+                supplierId: selectedPO.supplierId,
+                purchaseOrderId: selectedPO.id,
+                quantity: String(remainingQty > 0 ? remainingQty : ''),
+            }));
+            setSkuSearch(product.sku);
+        }
+    };
 
     const handleFindProduct = () => {
         if (!skuSearch) return;
@@ -1523,8 +1577,9 @@ const ReceiveStockPage: React.FC = () => {
         setProductFound(null);
         setIsNewProduct(false);
         setIsProductLocked(false);
+        setSelectedPOItem(null);
         setProductData({ category: categories.length > 0 ? categories[0].name : 'General', lowStockThreshold: 10, price: 0, cost: 0 });
-        setInventoryData({ quantity: '', batchNumber: '', expiryDate: '', supplierId: '' });
+        setInventoryData({ quantity: '', batchNumber: '', expiryDate: '', supplierId: selectedPO?.supplierId || '', purchaseOrderId: selectedPO?.id || '' });
     };
 
     const handleProductDataChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -1597,8 +1652,9 @@ const ReceiveStockPage: React.FC = () => {
             addedDate: new Date().toISOString(),
             supplierId: supplier?.id,
             supplierName: supplier?.name,
+            purchaseOrderId: inventoryData.purchaseOrderId || undefined,
         };
-        await saveInventoryItem(item);
+        await receiveStockAndUpdatePO(item);
 
         const productWithStock = productsWithStock.find(p => p.id === savedProduct!.id);
         const oldStock = productWithStock?.totalStock || 0;
@@ -1611,11 +1667,12 @@ const ReceiveStockPage: React.FC = () => {
             productName: savedProduct.name,
             quantityChange: item.quantity,
             newTotalStock: oldStock + item.quantity,
-            reason: `Stock received (Batch: ${item.batchNumber})`,
+            reason: `Stock received (Batch: ${item.batchNumber})` + (selectedPO ? ` for PO: ${selectedPO.poNumber}` : ''),
         });
 
         alert("Stock added successfully!");
-        window.location.hash = '#/inventory';
+        handleReset();
+        // Do not redirect, allow receiving more items from the same PO
     };
 
     return (
@@ -1627,6 +1684,42 @@ const ReceiveStockPage: React.FC = () => {
                 </a>
                 <h1 className="text-3xl font-bold text-dark dark:text-light">Receive Stock</h1>
             </div>
+
+            <div className="mb-6">
+                <label htmlFor="poSelect" className="block text-sm font-medium">Select Purchase Order (Optional)</label>
+                <select id="poSelect" onChange={(e) => handlePOSelect(e.target.value)} value={selectedPO?.id || ''} className={INPUT_FIELD_CLASSES}>
+                    <option value="">Receive without a PO</option>
+                    {openPurchaseOrders.map(po => <option key={po.id} value={po.id}>{po.poNumber} - {po.supplierName}</option>)}
+                </select>
+            </div>
+
+            {selectedPO && (
+                <div className="mb-6 border dark:border-gray-700 rounded-lg p-4">
+                    <h3 className="font-semibold mb-2">Items for PO: {selectedPO.poNumber}</h3>
+                    <div className="max-h-48 overflow-y-auto">
+                        <table className="w-full text-sm">
+                            <tbody>
+                                {selectedPO.items.map(item => {
+                                     const totalReceived = inventory.filter(i => i.purchaseOrderId === selectedPO.id && i.productId === item.productId).reduce((sum, i) => sum + i.quantity, 0);
+                                     const isFullyReceived = totalReceived >= item.quantityOrdered;
+                                    return (
+                                        <tr key={item.productId} className={selectedPOItem?.productId === item.productId ? 'bg-primary/10' : ''}>
+                                            <td className="p-2">{item.productName} ({item.productSku})</td>
+                                            <td className="p-2 text-center">Ordered: {item.quantityOrdered}</td>
+                                            <td className="p-2 text-center">Received: {totalReceived}</td>
+                                            <td className="p-2 text-right">
+                                                <button onClick={() => handleReceivePOItem(item)} disabled={isFullyReceived} className="px-3 py-1 text-xs rounded bg-primary text-white hover:bg-opacity-90 disabled:bg-gray-400">
+                                                    {isFullyReceived ? 'Received' : 'Receive'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-8">
                 {/* Step 1: Find Product */}
@@ -1642,10 +1735,12 @@ const ReceiveStockPage: React.FC = () => {
                             className={INPUT_FIELD_CLASSES + " flex-grow"}
                             placeholder="Enter or scan SKU"
                             required
+                            disabled={!!selectedPO}
                         />
-                         <button type="button" onClick={() => setIsScannerOpen(true)} className="p-2.5 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">{icons.barcode}</button>
-                        <button type="button" onClick={handleFindProduct} className="px-4 py-2 rounded-md bg-secondary text-white hover:bg-opacity-90">Find Product</button>
+                         <button type="button" onClick={() => setIsScannerOpen(true)} className="p-2.5 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600" disabled={!!selectedPO}>{icons.barcode}</button>
+                        <button type="button" onClick={handleFindProduct} className="px-4 py-2 rounded-md bg-secondary text-white hover:bg-opacity-90" disabled={!!selectedPO}>Find Product</button>
                     </div>
+                     {selectedPO && <p className="text-xs text-gray-500 mt-1">Product is selected from the PO above. To receive a different product, clear the PO selection.</p>}
                 </fieldset>
 
                 {isProductLocked && (
@@ -1655,29 +1750,29 @@ const ReceiveStockPage: React.FC = () => {
                                 {isNewProduct ? (
                                     <p className="font-semibold text-amber-600 dark:text-amber-400">New Product: Please fill in the details below.</p>
                                 ) : (
-                                    <p className="font-semibold text-green-600 dark:text-green-400">Existing Product: {productFound?.name}</p>
+                                    <p className="font-semibold text-green-600 dark:text-green-400">Selected Product: {productFound?.name}</p>
                                 )}
                             </div>
-                            <button type="button" onClick={handleReset} className="flex items-center gap-1 text-sm text-blue-500 hover:underline">{icons.refresh} Start Over</button>
+                            <button type="button" onClick={handleReset} className="flex items-center gap-1 text-sm text-blue-500 hover:underline">{icons.refresh} Clear Form</button>
                         </div>
 
                         {/* Step 2: Product and Batch Details */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             {/* Product Details Group */}
-                            <fieldset className="space-y-4 border dark:border-gray-700 p-4 rounded-lg">
+                            <fieldset disabled={!isNewProduct} className="space-y-4 border dark:border-gray-700 p-4 rounded-lg">
                                 <legend className="text-lg font-semibold px-2">Product Details</legend>
                                 <div>
                                     <label className="block text-sm font-medium">Product Name *</label>
-                                    <input type="text" name="name" value={productData.name || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required readOnly={!isNewProduct} />
+                                    <input type="text" name="name" value={productData.name || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium">Unit Price (Retail) *</label>
-                                        <input type="number" step="0.01" min="0" name="price" value={productData.price || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required readOnly={!isNewProduct} />
+                                        <input type="number" step="0.01" min="0" name="price" value={productData.price || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium">Category *</label>
-                                        <select name="category" value={productData.category || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required disabled={!isNewProduct}>
+                                        <select name="category" value={productData.category || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required>
                                             {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                         </select>
                                     </div>
@@ -1698,13 +1793,13 @@ const ReceiveStockPage: React.FC = () => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium">Expiry Date *</label>
-                                    <input type="date" name="expiryDate" value={inventoryData.expiryDate} onChange={handleExpiryDateChange} min={today} className={`${INPUT_FIELD_CLASSES} ${expiryWarning ? 'border-amber-500 ring-amber-500' : ''}`} required />
+                                    <label className="block text-sm font-medium">Expiry Date</label>
+                                    <input type="date" name="expiryDate" value={inventoryData.expiryDate} onChange={handleExpiryDateChange} min={today} className={`${INPUT_FIELD_CLASSES} ${expiryWarning ? 'border-amber-500 ring-amber-500' : ''}`} />
                                     {expiryWarning && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Warning: This batch expires in less than 6 months.</p>}
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium">Supplier *</label>
-                                    <select name="supplierId" value={inventoryData.supplierId} onChange={handleInventoryDataChange} className={INPUT_FIELD_CLASSES} required>
+                                    <select name="supplierId" value={inventoryData.supplierId} onChange={handleInventoryDataChange} className={INPUT_FIELD_CLASSES} required disabled={!!selectedPO}>
                                         <option value="" disabled>Select a supplier</option>
                                         {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                     </select>
@@ -2611,6 +2706,289 @@ const SettingsPage: React.FC = () => {
     );
 };
 
+// --- PURCHASE ORDER COMPONENTS --- //
+
+const getPOStatusColor = (status: PurchaseOrderStatus) => {
+    switch (status) {
+        case PurchaseOrderStatus.PENDING: return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300';
+        case PurchaseOrderStatus.SUBMITTED: return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+        case PurchaseOrderStatus.SHIPPED: return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300';
+        case PurchaseOrderStatus.PARTIALLY_RECEIVED: return 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300';
+        case PurchaseOrderStatus.RECEIVED: return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300';
+        case PurchaseOrderStatus.CANCELLED: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+        default: return 'bg-gray-100 text-gray-800';
+    }
+}
+
+const POStatusBadge: React.FC<{ status: PurchaseOrderStatus }> = ({ status }) => (
+    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPOStatusColor(status)}`}>
+        {status}
+    </span>
+);
+
+const PurchaseOrdersManagementPage: React.FC = () => {
+    const { purchaseOrders, deletePurchaseOrder, settings } = useStore();
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+
+    const filteredPOs = useMemo(() => {
+        return purchaseOrders.filter(po =>
+            po.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            po.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            po.status.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [purchaseOrders, searchTerm]);
+
+    const { items: sortedPOs, requestSort, sortConfig } = useSort(filteredPOs, { key: 'createdAt', direction: 'desc' });
+    
+    const openDeleteConfirm = (po: PurchaseOrder) => {
+        if (po.status !== PurchaseOrderStatus.PENDING) {
+            alert("Only 'Pending' purchase orders can be deleted.");
+            return;
+        }
+        setSelectedPO(po);
+        setIsConfirmOpen(true);
+    };
+
+    const handleDelete = async () => {
+        if (selectedPO) {
+            await deletePurchaseOrder(selectedPO.id);
+            setIsConfirmOpen(false);
+            setSelectedPO(null);
+        }
+    };
+
+    return (
+        <>
+            <ManagementPage
+                title="Purchase Orders"
+                addBtnLabel="Create PO"
+                onAdd={() => window.location.hash = '#/purchase-order/new'}
+                searchTerm={searchTerm}
+                onSearch={setSearchTerm}
+            >
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <SortableHeader label="PO Number" sortKey="poNumber" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Created At" sortKey="createdAt" sortConfig={sortConfig} requestSort={requestSort} />
+                                <SortableHeader label="Total" sortKey="total" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                                <th className="px-4 py-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedPOs.map(po => (
+                                <tr key={po.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white"><a href={`#/purchase-order/${po.id}`} className="text-primary hover:underline">{po.poNumber}</a></td>
+                                    <td className="px-4 py-3">{po.supplierName}</td>
+                                    <td className="px-4 py-3"><POStatusBadge status={po.status} /></td>
+                                    <td className="px-4 py-3">{new Date(po.createdAt).toLocaleDateString()}</td>
+                                    <td className="px-4 py-3 text-right font-semibold">{settings.currencySymbol}{po.total.toFixed(2)}</td>
+                                    <td className="px-4 py-3 flex gap-2">
+                                        <a href={`#/purchase-order/${po.id}`} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">{icons.edit}</a>
+                                        {po.status === PurchaseOrderStatus.PENDING && (
+                                            <button onClick={() => openDeleteConfirm(po)} className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">{icons.trash}</button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </ManagementPage>
+             <ConfirmationModal 
+                isOpen={isConfirmOpen} 
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={handleDelete}
+                title="Delete Purchase Order"
+            >
+                Are you sure you want to delete PO "{selectedPO?.poNumber}"? This action cannot be undone.
+            </ConfirmationModal>
+        </>
+    );
+};
+
+const PurchaseOrderFormPage: React.FC<{ poId: string }> = ({ poId }) => {
+    const { purchaseOrders, suppliers, products, savePurchaseOrder, settings } = useStore();
+    const isNew = poId === 'new';
+    
+    const [po, setPo] = useState<Partial<PurchaseOrder>>({});
+    const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+    const [productSearch, setProductSearch] = useState('');
+
+    useEffect(() => {
+        if (!isNew) {
+            const existingPO = purchaseOrders.find(p => p.id === poId);
+            if (existingPO) {
+                setPo(existingPO);
+            }
+        } else {
+            setPo({
+                status: PurchaseOrderStatus.PENDING,
+                items: [],
+                createdAt: new Date().toISOString(),
+                poNumber: `PO-${new Date().getFullYear()}-${String(purchaseOrders.length + 1).padStart(3, '0')}`,
+            });
+        }
+    }, [poId, purchaseOrders, isNew]);
+
+    const handleAddItem = (product: Product) => {
+        const newItem: PurchaseOrderItem = {
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            quantityOrdered: 1,
+            cost: product.cost || 0,
+        };
+        setPo(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
+        setIsProductModalOpen(false);
+    };
+
+    const handleItemChange = (productId: string, field: 'quantityOrdered' | 'cost', value: number) => {
+        setPo(prev => ({
+            ...prev,
+            items: (prev.items || []).map(item => item.productId === productId ? { ...item, [field]: value } : item)
+        }));
+    };
+
+    const handleRemoveItem = (productId: string) => {
+        setPo(prev => ({...prev, items: (prev.items || []).filter(item => item.productId !== productId)}));
+    };
+
+    const handleSupplierChange = (supplierId: string) => {
+        const supplier = suppliers.find(s => s.id === supplierId);
+        if(supplier) {
+            setPo(prev => ({ ...prev, supplierId: supplier.id, supplierName: supplier.name }));
+        }
+    }
+
+    const totals = useMemo(() => {
+        const subtotal = (po.items || []).reduce((sum, item) => sum + item.cost * item.quantityOrdered, 0);
+        return { subtotal, total: subtotal };
+    }, [po.items]);
+
+    const handleSave = async (status: PurchaseOrderStatus) => {
+        if (!po.supplierId) {
+            alert("Please select a supplier.");
+            return;
+        }
+        if (!po.items || po.items.length === 0) {
+            alert("Please add at least one item to the order.");
+            return;
+        }
+
+        const finalPO: PurchaseOrder = {
+            ...po,
+            id: po.id || `po-${Date.now()}`,
+            status,
+            subtotal: totals.subtotal,
+            total: totals.total,
+            submittedAt: status === PurchaseOrderStatus.SUBMITTED ? new Date().toISOString() : po.submittedAt,
+        } as PurchaseOrder;
+
+        await savePurchaseOrder(finalPO);
+        window.location.hash = '#/purchase-orders';
+    };
+
+    const filteredProducts = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.sku.toLowerCase().includes(productSearch.toLowerCase()));
+    
+    const canEdit = po.status === PurchaseOrderStatus.PENDING;
+
+    return (
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-md p-6">
+            <div className="flex items-center justify-between mb-6 border-b dark:border-gray-700 pb-4">
+                <div>
+                    <a href="#/purchase-orders" className="flex items-center gap-2 text-primary hover:underline mb-2">
+                        {icons.arrowLeft} Back to Purchase Orders
+                    </a>
+                    <h1 className="text-3xl font-bold text-dark dark:text-light">{isNew ? 'Create Purchase Order' : `Edit PO: ${po.poNumber}`}</h1>
+                </div>
+                {po.status && <POStatusBadge status={po.status} />}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label className="block text-sm font-medium">Supplier *</label>
+                    <select value={po.supplierId || ''} onChange={e => handleSupplierChange(e.target.value)} className={INPUT_FIELD_CLASSES} disabled={!canEdit}>
+                        <option value="" disabled>Select a supplier</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">Expected Delivery Date</label>
+                    <input type="date" value={po.expectedDeliveryDate?.split('T')[0] || ''} onChange={e => setPo(p => ({...p, expectedDeliveryDate: e.target.value}))} className={INPUT_FIELD_CLASSES} disabled={!canEdit} />
+                </div>
+            </div>
+
+            <div className="mb-6">
+                <h3 className="text-xl font-semibold mb-2">Items</h3>
+                <div className="overflow-x-auto border dark:border-gray-700 rounded-lg">
+                    <table className="w-full text-sm">
+                        <thead className="bg-gray-50 dark:bg-gray-800"><tr>
+                            <th className="px-4 py-2 text-left">Product</th>
+                            <th className="px-4 py-2 text-right w-32">Quantity</th>
+                            <th className="px-4 py-2 text-right w-32">Cost/Item</th>
+                            <th className="px-4 py-2 text-right w-40">Line Total</th>
+                            {canEdit && <th className="px-4 py-2 w-12"></th>}
+                        </tr></thead>
+                        <tbody>
+                        {(po.items || []).map(item => (
+                            <tr key={item.productId} className="border-t dark:border-gray-700">
+                                <td className="px-4 py-2">{item.productName} <span className="text-gray-400">({item.productSku})</span></td>
+                                <td className="px-4 py-2"><input type="number" min="1" value={item.quantityOrdered} onChange={e => handleItemChange(item.productId, 'quantityOrdered', parseInt(e.target.value))} className="w-full text-right bg-transparent dark:text-white" disabled={!canEdit}/></td>
+                                <td className="px-4 py-2"><input type="number" step="0.01" value={item.cost} onChange={e => handleItemChange(item.productId, 'cost', parseFloat(e.target.value))} className="w-full text-right bg-transparent dark:text-white" disabled={!canEdit}/></td>
+                                <td className="px-4 py-2 text-right font-medium">{settings.currencySymbol}{(item.quantityOrdered * item.cost).toFixed(2)}</td>
+                                {canEdit && <td className="px-4 py-2 text-center"><button onClick={() => handleRemoveItem(item.productId)} className="text-red-500">{icons.trash}</button></td>}
+                            </tr>
+                        ))}
+                        </tbody>
+                    </table>
+                </div>
+                 {canEdit && <button onClick={() => setIsProductModalOpen(true)} className="mt-4 flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-secondary text-white hover:bg-opacity-90">{icons.plus} Add Item</button>}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                     <label className="block text-sm font-medium">Notes</label>
+                     <textarea value={po.notes || ''} onChange={e => setPo(p => ({...p, notes: e.target.value}))} className={INPUT_FIELD_CLASSES + ' h-24'} disabled={!canEdit}></textarea>
+                </div>
+                <div className="space-y-2 text-right">
+                    <div className="flex justify-between text-lg"><span className="text-gray-500">Subtotal:</span> <span className="font-semibold">{settings.currencySymbol}{totals.subtotal.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-xl font-bold border-t dark:border-gray-700 pt-2"><span className="">Total:</span> <span>{settings.currencySymbol}{totals.total.toFixed(2)}</span></div>
+                </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-8 pt-4 border-t dark:border-gray-700">
+                <a href="#/purchase-orders" className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</a>
+                {canEdit && (
+                    <>
+                        <button onClick={() => handleSave(PurchaseOrderStatus.PENDING)} className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">Save as Draft</button>
+                        <button onClick={() => handleSave(PurchaseOrderStatus.SUBMITTED)} className="px-6 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">Submit Order</button>
+                    </>
+                )}
+            </div>
+
+            <Modal isOpen={isProductModalOpen} onClose={() => setIsProductModalOpen(false)} title="Add Product to Order">
+                <input type="text" placeholder="Search products..." value={productSearch} onChange={e => setProductSearch(e.target.value)} className={INPUT_FIELD_CLASSES + " mb-4"} />
+                <ul className="space-y-1 max-h-80 overflow-y-auto">
+                    {filteredProducts.map(p => (
+                        <li key={p.id}>
+                            <button onClick={() => handleAddItem(p)} disabled={(po.items || []).some(i => i.productId === p.id)} className="w-full text-left p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
+                                {p.name} <span className="text-gray-400">({p.sku})</span>
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            </Modal>
+        </div>
+    );
+};
+
+
 // --- App Layout & Router --- //
 const AppLayout: React.FC<{ children: ReactNode }> = ({ children }) => {
     const { user, logout } = useAuth();
@@ -2657,6 +3035,7 @@ const AppLayout: React.FC<{ children: ReactNode }> = ({ children }) => {
         { name: 'POS', icon: icons.pos, href: '#/pos', roles: [UserRole.SUPER_ADMIN, UserRole.CASHIER] },
         { name: 'Products', icon: icons.products, href: '#/products', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Inventory', icon: icons.inventory, href: '#/inventory', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
+        { name: 'Purchase Orders', icon: icons.purchaseOrder, href: '#/purchase-orders', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Tasks', icon: icons.clipboard, href: '#/tasks', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Sales', icon: icons.sales, href: '#/sales', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
         { name: 'Reports', icon: icons.reports, href: '#/reports', roles: [UserRole.SUPER_ADMIN, UserRole.STOCK_MANAGER] },
@@ -2776,6 +3155,11 @@ const App: React.FC = () => {
         // Non-protected routes
         if (!user) return <LoginPage />;
 
+        if (path.startsWith('#/purchase-order/')) {
+            const poId = path.substring('#/purchase-order/'.length); // 'new' or an actual id
+            return <PurchaseOrderFormPage poId={poId} />;
+        }
+
         switch (path) {
             case '#/':
                 if (user.role === UserRole.CASHIER) return <POSPage />;
@@ -2786,6 +3170,8 @@ const App: React.FC = () => {
                 return <ProductManagementPage />;
             case '#/inventory':
                 return <InventoryManagementPage />;
+            case '#/purchase-orders':
+                return <PurchaseOrdersManagementPage />;
             case '#/receive-stock':
                 return <ReceiveStockPage />;
             case '#/tasks':
