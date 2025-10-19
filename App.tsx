@@ -1949,99 +1949,292 @@ const SalesHistoryPage: React.FC = () => {
     );
 };
 
-const ReportsPage: React.FC = () => {
-    const { sales, productsWithStock, settings } = useStore();
+const DateRangePicker: React.FC<{
+    onDateChange: (start: Date, end: Date) => void;
+}> = ({ onDateChange }) => {
+    const [preset, setPreset] = useState<'today' | 'week' | 'month' | 'custom'>('month');
+    const [customStart, setCustomStart] = useState('');
+    const [customEnd, setCustomEnd] = useState('');
 
-    const salesSummary = useMemo(() => {
-        const totalRevenue = sales.reduce((sum, s) => sum + s.total, 0);
-        const totalProfit = sales.reduce((sum, s) => sum + (s.totalProfit || 0), 0);
-        const averageSale = sales.length > 0 ? totalRevenue / sales.length : 0;
-        return { totalRevenue, totalProfit, averageSale };
-    }, [sales]);
+    const calculateDates = useCallback((p: typeof preset) => {
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        let start = new Date();
 
-    const salesByCategory = useMemo(() => {
-        const map = new Map<string, { revenue: number, profit: number, units: number }>();
-        sales.forEach(sale => {
-            sale.items.forEach(item => {
-                const itemKey = item['category'] || 'N/A';
-                const current = map.get(itemKey) || { revenue: 0, profit: 0, units: 0 };
-                const itemProfit = (item.price - (item.cost || 0)) * item.quantity;
-                current.revenue += item.price * item.quantity;
-                current.profit += itemProfit;
-                current.units += item.quantity;
-                map.set(itemKey, current);
-            });
-        });
-        return Array.from(map.entries()).map(([name, data]) => ({ name, ...data })).sort((a,b) => b.revenue - a.revenue);
-    }, [sales]);
+        switch (p) {
+            case 'today':
+                start.setHours(0, 0, 0, 0);
+                break;
+            case 'week':
+                start.setDate(start.getDate() - start.getDay()); // Start of week (Sunday)
+                start.setHours(0, 0, 0, 0);
+                break;
+            case 'month':
+                start.setDate(1);
+                start.setHours(0, 0, 0, 0);
+                break;
+            case 'custom':
+                if (customStart && customEnd) {
+                    start = new Date(customStart);
+                    start.setHours(0, 0, 0, 0);
+                    end.setTime(new Date(customEnd).getTime());
+                    end.setHours(23, 59, 59, 999);
+                } else {
+                    return; // Don't call onDateChange if custom dates are not set
+                }
+                break;
+        }
+        onDateChange(start, end);
+    }, [onDateChange, customStart, customEnd]);
 
+    useEffect(() => {
+        if (preset !== 'custom') {
+            calculateDates(preset);
+        }
+    }, [preset, calculateDates]);
+    
+    useEffect(() => {
+        if (preset === 'custom' && customStart && customEnd) {
+            calculateDates('custom');
+        }
+    }, [preset, customStart, customEnd, calculateDates])
 
-    const itemSalesReport = useMemo(() => {
-        const map = new Map<string, { name: string; sku: string; units: number, revenue: number, profit: number }>();
-        sales.forEach(sale => {
-            sale.items.forEach(item => {
-                const current = map.get(item.id) || { name: item.name, sku: item.sku, units: 0, revenue: 0, profit: 0 };
-                current.units += item.quantity;
-                current.revenue += item.price * item.quantity;
-                current.profit += (item.price - (item.cost || 0)) * item.quantity;
-                map.set(item.id, current);
-            });
-        });
-        return Array.from(map.values()).sort((a,b) => b.revenue - a.revenue);
-    }, [sales]);
-
-    const ProgressBar: React.FC<{ value: number, max: number }> = ({ value, max }) => {
-        const percentage = max > 0 ? (value / max) * 100 : 0;
-        return <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5"><div className="bg-primary h-2.5 rounded-full" style={{ width: `${percentage}%`}}></div></div>
+    const handlePresetChange = (p: typeof preset) => {
+        setPreset(p);
+        if (p !== 'custom') {
+            setCustomStart('');
+            setCustomEnd('');
+        }
     };
 
     return (
-        <div className="space-y-6">
-            <h1 className="text-3xl font-bold text-dark dark:text-light">Reports</h1>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <StatCard title="Total Revenue" value={`${settings.currencySymbol}${salesSummary.totalRevenue.toFixed(2)}`} icon={icons.dollar} />
-                <StatCard title="Total Profit" value={`${settings.currencySymbol}${salesSummary.totalProfit.toFixed(2)}`} icon={icons.trendingUp} />
-                <StatCard title="Average Sale Value" value={`${settings.currencySymbol}${salesSummary.averageSale.toFixed(2)}`} icon={icons.sales} />
+        <div className="flex flex-wrap items-center gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+            <div className="flex gap-1 bg-gray-200 dark:bg-gray-800 p-1 rounded-lg">
+                {(['today', 'week', 'month'] as const).map(p => (
+                    <button key={p} onClick={() => handlePresetChange(p)} className={`px-3 py-1 text-sm rounded-md capitalize transition-all ${preset === p ? 'bg-white dark:bg-dark-card shadow font-semibold text-primary' : 'text-gray-600 dark:text-gray-300'}`}>{p}</button>
+                ))}
+            </div>
+            <div className="flex items-center gap-2">
+                <input type="date" value={customStart} onChange={e => { setCustomStart(e.target.value); handlePresetChange('custom')}} className="px-2 py-1.5 border rounded-md text-sm bg-transparent dark:border-gray-600" />
+                <span>to</span>
+                <input type="date" value={customEnd} onChange={e => { setCustomEnd(e.target.value); handlePresetChange('custom')}} className="px-2 py-1.5 border rounded-md text-sm bg-transparent dark:border-gray-600" />
+            </div>
+        </div>
+    );
+};
+
+const ReportsPage: React.FC = () => {
+    const { sales, products, productsWithStock, settings, users, inventory, suppliers, categories } = useStore();
+    
+    const [startDate, setStartDate] = useState(new Date());
+    const [endDate, setEndDate] = useState(new Date());
+
+    const filteredSales = useMemo(() => {
+        return sales.filter(s => {
+            const saleDate = new Date(s.timestamp);
+            return saleDate >= startDate && saleDate <= endDate;
+        });
+    }, [sales, startDate, endDate]);
+
+    // Financial Reports Data
+    const salesSummary = useMemo(() => {
+        const totalRevenue = filteredSales.reduce((sum, s) => sum + s.total, 0);
+        const totalCogs = filteredSales.reduce((sum, s) => sum + (s.totalCost || 0), 0);
+        const grossProfit = totalRevenue - totalCogs;
+        const totalTransactions = filteredSales.length;
+        const totalDiscounts = filteredSales.reduce((sum, s) => sum + (s.discountAmount || 0), 0);
+        return { totalRevenue, totalCogs, grossProfit, totalTransactions, totalDiscounts };
+    }, [filteredSales]);
+
+    const topProducts = useMemo(() => {
+        const map = new Map<string, { name: string; quantity: number, revenue: number, profit: number }>();
+        filteredSales.forEach(sale => {
+            sale.items.forEach(item => {
+                const current = map.get(item.id) || { name: item.name, quantity: 0, revenue: 0, profit: 0 };
+                const itemProfit = (item.price - (item.cost || 0)) * item.quantity;
+                current.quantity += item.quantity;
+                current.revenue += item.price * item.quantity;
+                current.profit += itemProfit;
+                map.set(item.id, current);
+            });
+        });
+        return Array.from(map.values());
+    }, [filteredSales]);
+
+    const { items: sortedTopProducts, requestSort: requestSortTopProducts, sortConfig: sortConfigTopProducts } = useSort(topProducts, { key: 'revenue', direction: 'desc' });
+    
+    // Inventory Reports Data (not date-filtered)
+    const stockValuation = useMemo(() => {
+        const totalStockQuantity = productsWithStock.reduce((sum, p) => sum + p.totalStock, 0);
+        const totalRetailValue = productsWithStock.reduce((sum, p) => sum + p.totalStock * p.price, 0);
+        const totalCostValue = productsWithStock.reduce((sum, p) => sum + p.totalStock * (p.cost || 0), 0);
+        return { totalStockQuantity, totalRetailValue, totalCostValue };
+    }, [productsWithStock]);
+    
+    const [expiryCategoryFilter, setExpiryCategoryFilter] = useState('all');
+    const [expirySupplierFilter, setExpirySupplierFilter] = useState('all');
+
+    const expiryAnalysis = useMemo(() => {
+        const inventoryWithDetails = inventory
+            .filter(item => item.expiryDate)
+            .map(item => ({...item, product: products.find(p => p.id === item.productId) }))
+            .filter(item => {
+                if (!item.product) return false;
+                if (expiryCategoryFilter !== 'all' && item.product.category !== expiryCategoryFilter) return false;
+                if (expirySupplierFilter !== 'all' && item.supplierId !== expirySupplierFilter) return false;
+                return true;
+            });
+            
+        const groups = {
+            expired: [],
+            in30days: [],
+            in60_180days: [],
+        } as Record<string, typeof inventoryWithDetails>;
+
+        inventoryWithDetails.forEach(item => {
+            const { days } = getExpiryStatus(item.expiryDate);
+            if (days < 0) groups.expired.push(item);
+            else if (days <= 30) groups.in30days.push(item);
+            else if (days <= 180) groups.in60_180days.push(item);
+        });
+        
+        return groups;
+
+    }, [inventory, products, expiryCategoryFilter, expirySupplierFilter]);
+
+    // User Activity Report
+    const userActivity = useMemo(() => {
+        const map = new Map<string, { name: string; transactions: number, totalSales: number }>();
+        filteredSales.forEach(sale => {
+            const current = map.get(sale.cashierId) || { name: sale.cashierName, transactions: 0, totalSales: 0 };
+            current.transactions += 1;
+            current.totalSales += sale.total;
+            map.set(sale.cashierId, current);
+        });
+        return Array.from(map.values()).sort((a,b) => b.totalSales - a.totalSales);
+    }, [filteredSales]);
+
+
+    return (
+        <div className="space-y-8">
+            <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+                <h1 className="text-3xl font-bold text-dark dark:text-light">Reports</h1>
+                <DateRangePicker onDateChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
             </div>
 
-            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                <h2 className="text-xl font-semibold mb-4">Sales by Category</h2>
-                <div className="space-y-3 max-h-80 overflow-y-auto">
-                    {salesByCategory.map(cat => (
-                        <div key={cat.name}>
-                            <div className="flex justify-between text-sm mb-1">
-                                <span>{cat.name}</span>
-                                <span className="font-semibold">{settings.currencySymbol}{cat.revenue.toFixed(2)}</span>
-                            </div>
-                            <ProgressBar value={cat.revenue} max={salesByCategory[0].revenue} />
+            {/* Financial Reports */}
+            <div className="space-y-6">
+                <h2 className="text-2xl font-semibold border-b dark:border-gray-700 pb-2 text-dark dark:text-light">Financial Reports</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                    <StatCard title="Total Revenue" value={`${settings.currencySymbol}${salesSummary.totalRevenue.toFixed(2)}`} icon={icons.dollar} />
+                    <StatCard title="Cost of Goods Sold" value={`${settings.currencySymbol}${salesSummary.totalCogs.toFixed(2)}`} icon={icons.inventory} />
+                    <StatCard title="Gross Profit" value={`${settings.currencySymbol}${salesSummary.grossProfit.toFixed(2)}`} icon={icons.trendingUp} />
+                    <StatCard title="Total Transactions" value={salesSummary.totalTransactions} icon={icons.sales} />
+                    <StatCard title="Total Discounts" value={`${settings.currencySymbol}${salesSummary.totalDiscounts.toFixed(2)}`} icon={icons.tag} />
+                </div>
+                 <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                     <h3 className="text-xl font-semibold mb-4">Top Products</h3>
+                      <div className="overflow-x-auto max-h-96">
+                        <table className="w-full text-sm">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3">Product</th>
+                                    <SortableHeader label="Qty Sold" sortKey="quantity" sortConfig={sortConfigTopProducts} requestSort={requestSortTopProducts} className="text-right" />
+                                    <SortableHeader label="Revenue" sortKey="revenue" sortConfig={sortConfigTopProducts} requestSort={requestSortTopProducts} className="text-right" />
+                                    <SortableHeader label="Profit" sortKey="profit" sortConfig={sortConfigTopProducts} requestSort={requestSortTopProducts} className="text-right" />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedTopProducts.map(item => (
+                                    <tr key={item.name} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.name}</td>
+                                        <td className="px-4 py-3 text-right">{item.quantity}</td>
+                                        <td className="px-4 py-3 text-right">{settings.currencySymbol}{item.revenue.toFixed(2)}</td>
+                                        <td className="px-4 py-3 text-right">{settings.currencySymbol}{item.profit.toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+             {/* Inventory Reports */}
+            <div className="space-y-6">
+                 <h2 className="text-2xl font-semibold border-b dark:border-gray-700 pb-2 text-dark dark:text-light">Inventory Reports</h2>
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                     <StatCard title="Total Stock Quantity" value={stockValuation.totalStockQuantity.toLocaleString()} icon={icons.inventory} />
+                     <StatCard title="Total Retail Value" value={`${settings.currencySymbol}${stockValuation.totalRetailValue.toFixed(2)}`} icon={icons.dollar} />
+                     <StatCard title="Total Cost Value" value={`${settings.currencySymbol}${stockValuation.totalCostValue.toFixed(2)}`} icon={icons.pos} />
+                </div>
+                 <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                     <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
+                        <h3 className="text-xl font-semibold">Expiry Analysis Report</h3>
+                        <div className="flex gap-2">
+                             <select value={expiryCategoryFilter} onChange={e => setExpiryCategoryFilter(e.target.value)} className={INPUT_FIELD_CLASSES + ' mt-0 text-sm'}>
+                                <option value="all">All Categories</option>
+                                {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                            </select>
+                             <select value={expirySupplierFilter} onChange={e => setExpirySupplierFilter(e.target.value)} className={INPUT_FIELD_CLASSES + ' mt-0 text-sm'}>
+                                <option value="all">All Suppliers</option>
+                                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
                         </div>
-                    ))}
+                     </div>
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {(['expired', 'in30days', 'in60_180days'] as const).map(key => (
+                            expiryAnalysis[key].length > 0 && (
+                                <div key={key}>
+                                    <h4 className="font-bold text-md mb-2 p-2 rounded-md bg-gray-100 dark:bg-gray-800">
+                                        { { expired: 'Expired', in30days: 'Expiring in 30 Days', in60_180days: 'Expiring in 60-180 Days' }[key] }
+                                        ({expiryAnalysis[key].length} batches)
+                                    </h4>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <tbody>
+                                                {expiryAnalysis[key].map(item => (
+                                                    <tr key={item.id} className="border-b dark:border-gray-700">
+                                                        <td className="p-2 font-medium">{item.product?.name}</td>
+                                                        <td className="p-2">Batch: {item.batchNumber}</td>
+                                                        <td className="p-2">Qty: {item.quantity}</td>
+                                                        <td className={`p-2 font-semibold ${getExpiryStatus(item.expiryDate).className}`}>{new Date(item.expiryDate!).toLocaleDateString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )
+                        ))}
+                    </div>
                 </div>
             </div>
             
-            <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
-                 <h2 className="text-xl font-semibold mb-4">Item Sales Report</h2>
-                  <div className="overflow-x-auto max-h-96">
-                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
-                            <tr>
-                                <th className="px-4 py-3">Product</th>
-                                <th className="px-4 py-3 text-right">Units Sold</th>
-                                <th className="px-4 py-3 text-right">Revenue</th>
-                                <th className="px-4 py-3 text-right">Profit</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {itemSalesReport.map(item => (
-                                <tr key={item.sku} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.name} ({item.sku})</td>
-                                    <td className="px-4 py-3 text-right">{item.units}</td>
-                                    <td className="px-4 py-3 text-right">{settings.currencySymbol}{item.revenue.toFixed(2)}</td>
-                                    <td className="px-4 py-3 text-right">{settings.currencySymbol}{item.profit.toFixed(2)}</td>
+             {/* User Activity Report */}
+            <div className="space-y-6">
+                 <h2 className="text-2xl font-semibold border-b dark:border-gray-700 pb-2 text-dark dark:text-light">User Activity Report</h2>
+                 <div className="bg-white dark:bg-dark-card p-6 rounded-xl shadow-md">
+                     <h3 className="text-xl font-semibold mb-4">Sales by Employee</h3>
+                      <div className="overflow-x-auto max-h-96">
+                        <table className="w-full text-sm">
+                             <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3">Employee Name</th>
+                                    <th className="px-4 py-3 text-right">Transactions Handled</th>
+                                    <th className="px-4 py-3 text-right">Total Sales Processed</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {userActivity.map(user => (
+                                    <tr key={user.name} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{user.name}</td>
+                                        <td className="px-4 py-3 text-right">{user.transactions}</td>
+                                        <td className="px-4 py-3 text-right font-semibold">{settings.currencySymbol}{user.totalSales.toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
