@@ -48,6 +48,7 @@ const icons = {
     sort: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-1 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>,
     sortAsc: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>,
     sortDesc: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>,
+    refresh: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm10 8a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 111.885-.666A5.002 5.002 0 0014.001 13H11a1 1 0 01-1-1z" clipRule="evenodd" /></svg>,
 };
 
 
@@ -170,7 +171,7 @@ type StoreContextType = {
     refreshData: () => void;
     saveUser: (user: User) => Promise<void>;
     deleteUser: (userId: string) => Promise<void>;
-    saveProduct: (product: Product) => Promise<void>;
+    saveProduct: (product: Product) => Promise<Product>;
     deleteProduct: (productId: string) => Promise<void>;
     saveInventoryItem: (item: InventoryItem) => Promise<void>;
     addSale: (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => Promise<Sale>;
@@ -231,7 +232,7 @@ const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
     const saveUser = async (user: User) => { mockApi.saveUser(user); refreshData(); };
     const deleteUser = async (userId: string) => { mockApi.deleteUser(userId); refreshData(); };
-    const saveProduct = async (product: Product) => { mockApi.saveProduct(product); refreshData(); };
+    const saveProduct = async (product: Product) => { const saved = mockApi.saveProduct(product); refreshData(); return saved; };
     const deleteProduct = async (productId: string) => { mockApi.deleteProduct(productId); refreshData(); }
     const saveInventoryItem = async (item: InventoryItem) => { mockApi.saveInventoryItem(item); refreshData(); }
     const addSale = async (sale: Omit<Sale, 'id' | 'totalCost' | 'totalProfit'>) => { const newSale = mockApi.addSale(sale); refreshData(); return newSale; }
@@ -1403,90 +1404,8 @@ const ProductManagementPage: React.FC = () => {
 };
 
 // --- Inventory Management --- //
-const InventoryModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-}> = ({ isOpen, onClose }) => {
-    const { products, suppliers, saveInventoryItem } = useStore();
-    const [productId, setProductId] = useState<string>('');
-    const [quantity, setQuantity] = useState<string>('');
-    const [expiryDate, setExpiryDate] = useState<string>('');
-    const [batchNumber, setBatchNumber] = useState<string>('');
-    const [supplierId, setSupplierId] = useState<string>('');
-
-    useEffect(() => {
-        if(isOpen) {
-            setProductId(products[0]?.id || '');
-            setQuantity('');
-            setExpiryDate('');
-            setBatchNumber('');
-            setSupplierId('');
-        }
-    }, [isOpen, products]);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const supplier = suppliers.find(s => s.id === supplierId);
-        const item: Omit<InventoryItem, 'id' | 'addedDate'> = {
-            productId,
-            quantity: parseInt(quantity),
-            batchNumber,
-            expiryDate: expiryDate || undefined,
-            supplierId: supplierId || undefined,
-            supplierName: supplier?.name || undefined,
-        };
-        await saveInventoryItem({
-            ...item,
-            id: `inv-${Date.now()}`,
-            addedDate: new Date().toISOString()
-        });
-        onClose();
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Add New Stock Batch">
-             <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium">Product *</label>
-                    <select value={productId} onChange={e => setProductId(e.target.value)} className={INPUT_FIELD_CLASSES} required>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                    </select>
-                </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">Quantity *</label>
-                        <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className={INPUT_FIELD_CLASSES} required min="1" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Batch Number *</label>
-                        <input type="text" value={batchNumber} onChange={e => setBatchNumber(e.target.value)} className={INPUT_FIELD_CLASSES} required />
-                    </div>
-                </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">Expiry Date</label>
-                        <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} className={INPUT_FIELD_CLASSES} />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Supplier</label>
-                        <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className={INPUT_FIELD_CLASSES}>
-                            <option value="">None</option>
-                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
-                </div>
-                 <div className="pt-4 flex justify-end gap-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" className="px-4 py-2 rounded-md bg-primary text-white hover:bg-opacity-90">Add Stock</button>
-                </div>
-             </form>
-        </Modal>
-    );
-};
-
 const InventoryManagementPage: React.FC = () => {
     const { inventory, products } = useStore();
-    const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
     const inventoryWithProductInfo = useMemo(() => {
@@ -1512,51 +1431,300 @@ const InventoryManagementPage: React.FC = () => {
     const { items: sortedInventory, requestSort, sortConfig } = useSort(filteredInventory, { key: 'addedDate', direction: 'desc' });
     
     return (
+        <ManagementPage
+            title="Inventory Batches"
+            searchTerm={searchTerm}
+            onSearch={setSearchTerm}
+            extraButtons={
+                <a href="#/receive-stock" className="flex-shrink-0 flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 text-sm">
+                    {icons.plus} Receive Stock
+                </a>
+            }
+        >
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <SortableHeader label="Product" sortKey="productName" sortConfig={sortConfig} requestSort={requestSort} />
+                            <SortableHeader label="Batch #" sortKey="batchNumber" sortConfig={sortConfig} requestSort={requestSort} />
+                            <SortableHeader label="Quantity" sortKey="quantity" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
+                            <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
+                            <SortableHeader label="Expiry Date" sortKey="expiryDate" sortConfig={sortConfig} requestSort={requestSort} />
+                            <SortableHeader label="Date Added" sortKey="addedDate" sortConfig={sortConfig} requestSort={requestSort} />
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sortedInventory.map(item => {
+                            const expiryStatus = getExpiryStatus(item.expiryDate);
+                            return (
+                                <tr key={item.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                        {item.productName}
+                                        <span className="block text-xs text-gray-400">{item.productSku}</span>
+                                    </td>
+                                    <td className="px-4 py-3">{item.batchNumber}</td>
+                                    <td className="px-4 py-3 text-right">{item.quantity}</td>
+                                    <td className="px-4 py-3">{item.supplierName || 'N/A'}</td>
+                                    <td className={`px-4 py-3 ${expiryStatus.className}`}>{expiryStatus.text}</td>
+                                    <td className="px-4 py-3">{new Date(item.addedDate).toLocaleDateString()}</td>
+                                </tr>
+                            )
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </ManagementPage>
+    );
+};
+
+
+// --- Receive Stock Page --- //
+const ReceiveStockPage: React.FC = () => {
+    const { products, suppliers, categories, saveProduct, saveInventoryItem, addAuditLog, productsWithStock } = useStore();
+    const { user } = useAuth();
+    
+    const [skuSearch, setSkuSearch] = useState('');
+    const [productFound, setProductFound] = useState<Product | null>(null);
+    const [isNewProduct, setIsNewProduct] = useState(false);
+    const [isProductLocked, setIsProductLocked] = useState(false);
+    const [expiryWarning, setExpiryWarning] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+    const [productData, setProductData] = useState<Partial<Product>>({
+        category: categories.length > 0 ? categories[0].name : 'General',
+        lowStockThreshold: 10,
+        price: 0,
+        cost: 0,
+    });
+    const [inventoryData, setInventoryData] = useState({
+        quantity: '',
+        batchNumber: '',
+        expiryDate: '',
+        supplierId: ''
+    });
+
+    const handleFindProduct = () => {
+        if (!skuSearch) return;
+        const existing = products.find(p => p.sku.toLowerCase() === skuSearch.toLowerCase());
+        if (existing) {
+            setProductFound(existing);
+            setProductData(existing);
+            setIsNewProduct(false);
+        } else {
+            setProductFound(null);
+            setProductData(prev => ({ ...prev, sku: skuSearch, name: '', price: 0, cost: 0, category: categories.length > 0 ? categories[0].name : 'General', lowStockThreshold: 10 }));
+            setIsNewProduct(true);
+        }
+        setIsProductLocked(true);
+    };
+    
+    const handleReset = () => {
+        setSkuSearch('');
+        setProductFound(null);
+        setIsNewProduct(false);
+        setIsProductLocked(false);
+        setProductData({ category: categories.length > 0 ? categories[0].name : 'General', lowStockThreshold: 10, price: 0, cost: 0 });
+        setInventoryData({ quantity: '', batchNumber: '', expiryDate: '', supplierId: '' });
+    };
+
+    const handleProductDataChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setProductData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleInventoryDataChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setInventoryData(prev => ({ ...prev, [name]: value }));
+    };
+    
+    const handleExpiryDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const dateStr = e.target.value;
+        handleInventoryDataChange(e);
+
+        if(!dateStr) {
+            setExpiryWarning(false);
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const date = new Date(dateStr);
+        const sixMonthsFromNow = new Date();
+        sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+        setExpiryWarning(date < sixMonthsFromNow && date >= today);
+    };
+
+    const handleBarcodeScanSuccess = (decodedText: string) => {
+        setSkuSearch(decodedText);
+        // We need to defer find product to allow state to update
+        setTimeout(() => handleFindProduct(), 0);
+    };
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        
+        let savedProduct = productFound;
+        if (isNewProduct) {
+            const productToSave: Product = {
+                id: `prod-${Date.now()}-${Math.random()}`,
+                sku: productData.sku!,
+                name: productData.name!,
+                price: Number(productData.price!),
+                cost: Number(productData.cost) || undefined,
+                category: productData.category!,
+                lowStockThreshold: Number(productData.lowStockThreshold!),
+                manufacturer: productData.manufacturer || undefined,
+                description: productData.description || undefined,
+            };
+            savedProduct = await saveProduct(productToSave);
+        }
+
+        if (!savedProduct) {
+            alert("Error: Product could not be found or created.");
+            return;
+        }
+        
+        const supplier = suppliers.find(s => s.id === inventoryData.supplierId);
+        
+        const item: InventoryItem = {
+            id: `inv-${Date.now()}`,
+            productId: savedProduct.id,
+            quantity: Number(inventoryData.quantity),
+            batchNumber: inventoryData.batchNumber,
+            expiryDate: inventoryData.expiryDate || undefined,
+            addedDate: new Date().toISOString(),
+            supplierId: supplier?.id,
+            supplierName: supplier?.name,
+        };
+        await saveInventoryItem(item);
+
+        const productWithStock = productsWithStock.find(p => p.id === savedProduct!.id);
+        const oldStock = productWithStock?.totalStock || 0;
+        
+        await addAuditLog({
+            timestamp: new Date().toISOString(),
+            userId: user!.id,
+            userName: user!.name,
+            productId: savedProduct.id,
+            productName: savedProduct.name,
+            quantityChange: item.quantity,
+            newTotalStock: oldStock + item.quantity,
+            reason: `Stock received (Batch: ${item.batchNumber})`,
+        });
+
+        alert("Stock added successfully!");
+        window.location.hash = '#/inventory';
+    };
+
+    return (
         <>
-            <ManagementPage
-                title="Inventory Batches"
-                addBtnLabel="Add Stock"
-                onAdd={() => setIsModalOpen(true)}
-                searchTerm={searchTerm}
-                onSearch={setSearchTerm}
-            >
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-                            <tr>
-                                <SortableHeader label="Product" sortKey="productName" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Batch #" sortKey="batchNumber" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Quantity" sortKey="quantity" sortConfig={sortConfig} requestSort={requestSort} className="text-right" />
-                                <SortableHeader label="Supplier" sortKey="supplierName" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Expiry Date" sortKey="expiryDate" sortConfig={sortConfig} requestSort={requestSort} />
-                                <SortableHeader label="Date Added" sortKey="addedDate" sortConfig={sortConfig} requestSort={requestSort} />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedInventory.map(item => {
-                                const expiryStatus = getExpiryStatus(item.expiryDate);
-                                return (
-                                    <tr key={item.id} className="bg-white border-b dark:bg-dark-card dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                                            {item.productName}
-                                            <span className="block text-xs text-gray-400">{item.productSku}</span>
-                                        </td>
-                                        <td className="px-4 py-3">{item.batchNumber}</td>
-                                        <td className="px-4 py-3 text-right">{item.quantity}</td>
-                                        <td className="px-4 py-3">{item.supplierName || 'N/A'}</td>
-                                        <td className={`px-4 py-3 ${expiryStatus.className}`}>{expiryStatus.text}</td>
-                                        <td className="px-4 py-3">{new Date(item.addedDate).toLocaleDateString()}</td>
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </ManagementPage>
-            <InventoryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-md p-6">
+            <div className="flex items-center justify-between mb-6">
+                <a href="#/inventory" className="flex items-center gap-2 text-primary hover:underline">
+                    {icons.arrowLeft} Back to Inventory
+                </a>
+                <h1 className="text-3xl font-bold text-dark dark:text-light">Receive Stock</h1>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-8">
+                {/* Step 1: Find Product */}
+                <fieldset disabled={isProductLocked} className="space-y-2">
+                    <label htmlFor="skuSearch" className="block text-sm font-medium">Product SKU / Barcode *</label>
+                    <div className="flex gap-2">
+                        <input
+                            id="skuSearch"
+                            type="text"
+                            value={skuSearch}
+                            onChange={e => setSkuSearch(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleFindProduct()}
+                            className={INPUT_FIELD_CLASSES + " flex-grow"}
+                            placeholder="Enter or scan SKU"
+                            required
+                        />
+                         <button type="button" onClick={() => setIsScannerOpen(true)} className="p-2.5 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">{icons.barcode}</button>
+                        <button type="button" onClick={handleFindProduct} className="px-4 py-2 rounded-md bg-secondary text-white hover:bg-opacity-90">Find Product</button>
+                    </div>
+                </fieldset>
+
+                {isProductLocked && (
+                    <>
+                        <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800 flex justify-between items-center">
+                            <div>
+                                {isNewProduct ? (
+                                    <p className="font-semibold text-amber-600 dark:text-amber-400">New Product: Please fill in the details below.</p>
+                                ) : (
+                                    <p className="font-semibold text-green-600 dark:text-green-400">Existing Product: {productFound?.name}</p>
+                                )}
+                            </div>
+                            <button type="button" onClick={handleReset} className="flex items-center gap-1 text-sm text-blue-500 hover:underline">{icons.refresh} Start Over</button>
+                        </div>
+
+                        {/* Step 2: Product and Batch Details */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Product Details Group */}
+                            <fieldset className="space-y-4 border dark:border-gray-700 p-4 rounded-lg">
+                                <legend className="text-lg font-semibold px-2">Product Details</legend>
+                                <div>
+                                    <label className="block text-sm font-medium">Product Name *</label>
+                                    <input type="text" name="name" value={productData.name || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required readOnly={!isNewProduct} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium">Unit Price (Retail) *</label>
+                                        <input type="number" step="0.01" min="0" name="price" value={productData.price || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required readOnly={!isNewProduct} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium">Category *</label>
+                                        <select name="category" value={productData.category || ''} onChange={handleProductDataChange} className={INPUT_FIELD_CLASSES} required disabled={!isNewProduct}>
+                                            {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            {/* Compliance Details Group */}
+                            <fieldset className="space-y-4 border dark:border-gray-700 p-4 rounded-lg">
+                                <legend className="text-lg font-semibold px-2">Compliance & Batch Details</legend>
+                                <div className="grid grid-cols-2 gap-4">
+                                     <div>
+                                        <label className="block text-sm font-medium">Batch/Lot Number *</label>
+                                        <input type="text" name="batchNumber" value={inventoryData.batchNumber} onChange={handleInventoryDataChange} className={INPUT_FIELD_CLASSES} required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium">Quantity Received *</label>
+                                        <input type="number" min="1" name="quantity" value={inventoryData.quantity} onChange={handleInventoryDataChange} className={INPUT_FIELD_CLASSES} required />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium">Expiry Date *</label>
+                                    <input type="date" name="expiryDate" value={inventoryData.expiryDate} onChange={handleExpiryDateChange} min={today} className={`${INPUT_FIELD_CLASSES} ${expiryWarning ? 'border-amber-500 ring-amber-500' : ''}`} required />
+                                    {expiryWarning && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Warning: This batch expires in less than 6 months.</p>}
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium">Supplier *</label>
+                                    <select name="supplierId" value={inventoryData.supplierId} onChange={handleInventoryDataChange} className={INPUT_FIELD_CLASSES} required>
+                                        <option value="" disabled>Select a supplier</option>
+                                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                </div>
+                            </fieldset>
+                        </div>
+                        <div className="flex justify-end pt-4">
+                             <button type="submit" className="px-6 py-3 rounded-lg bg-primary text-white font-semibold hover:bg-opacity-90">
+                                {isNewProduct ? 'Create Product & Add Stock' : 'Add Stock to Inventory'}
+                             </button>
+                        </div>
+                    </>
+                )}
+            </form>
+        </div>
+        <BarcodeScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScanSuccess={handleBarcodeScanSuccess} />
         </>
     );
 };
+
 
 // --- Task Management --- //
 const TaskModal: React.FC<{
@@ -2425,6 +2593,8 @@ const App: React.FC = () => {
                 return <ProductManagementPage />;
             case '#/inventory':
                 return <InventoryManagementPage />;
+            case '#/receive-stock':
+                return <ReceiveStockPage />;
             case '#/tasks':
                 return <TasksManagementPage />;
             case '#/sales':

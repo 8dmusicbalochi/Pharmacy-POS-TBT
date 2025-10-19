@@ -1,4 +1,4 @@
-import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task } from '../types';
+import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod } from '../types';
 
 const USERS_KEY = 'pharmacy_users';
 const PRODUCTS_KEY = 'pharmacy_products';
@@ -93,6 +93,95 @@ const getInitialTasks = (): Task[] => [
     }
 ]
 
+// Helper to get a random element from an array
+const getRandomElement = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+// Helper to get a random integer between min and max (inclusive)
+const getRandomInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
+
+const getInitialSales = (): Sale[] => {
+    const sales: Sale[] = [];
+    const products = getInitialProducts();
+    const cashier: User = { id: 'u3', username: 'cashier', password: 'password', role: UserRole.CASHIER, name: 'Cashier User' };
+    const today = new Date();
+
+    // Generate sales for the last 30 days
+    for (let i = 29; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        
+        const salesPerDay = getRandomInt(2, 10);
+
+        for (let j = 0; j < salesPerDay; j++) {
+            const items: CartItem[] = [];
+            const numItems = getRandomInt(1, 5);
+            const usedProductIds = new Set<string>();
+
+            for (let k = 0; k < numItems; k++) {
+                let product;
+                // Ensure we don't add the same product twice in one sale and product exists
+                do {
+                    product = getRandomElement(products);
+                } while (usedProductIds.has(product.id));
+                usedProductIds.add(product.id);
+
+                items.push({
+                    ...product,
+                    quantity: getRandomInt(1, 3),
+                });
+            }
+
+            const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+            
+            let discountType: 'percentage' | 'fixed' | undefined = undefined;
+            let discountValue: number | undefined = undefined;
+            let discountAmount = 0;
+            let total = subtotal;
+
+            // Apply discount ~20% of the time
+            if (Math.random() < 0.2 && subtotal > 5) {
+                if (Math.random() < 0.7) { // Percentage discount
+                    discountType = 'percentage';
+                    discountValue = getRandomElement([5, 10, 15]);
+                    discountAmount = subtotal * (discountValue / 100);
+                } else { // Fixed discount
+                    discountType = 'fixed';
+                    discountValue = getRandomElement([1, 2, 5]);
+                    discountAmount = discountValue;
+                }
+                discountAmount = Math.min(discountAmount, subtotal);
+                total = subtotal - discountAmount;
+            }
+
+            const totalCost = items.reduce((sum, item) => sum + (item.cost || 0) * item.quantity, 0);
+            const totalProfit = total - totalCost;
+            
+            // Randomize the time of day
+            date.setHours(getRandomInt(9, 21), getRandomInt(0, 59), getRandomInt(0, 59));
+
+            const sale: Sale = {
+                id: `sale-${date.getTime()}-${i}-${j}`,
+                items: items.map(item => ({...item, cost: products.find(p => p.id === item.id)?.cost || 0})),
+                subtotal,
+                discountType,
+                discountValue,
+                discountAmount,
+                total,
+                totalCost,
+                totalProfit,
+                timestamp: date.toISOString(),
+                cashierId: cashier.id,
+                cashierName: cashier.name,
+                paymentMethod: getRandomElement(Object.values(PaymentMethod)),
+            };
+
+            sales.push(sale);
+        }
+    }
+
+    return sales;
+};
+
 const getInitialSettings = (): AppSettings => ({
   appName: 'Pharmasist',
   currencySymbol: '$',
@@ -115,7 +204,7 @@ const seedData = () => {
     localStorage.setItem(INVENTORY_KEY, JSON.stringify(getInitialInventory()));
   }
   if (!localStorage.getItem(SALES_KEY)) {
-    localStorage.setItem(SALES_KEY, JSON.stringify([]));
+    localStorage.setItem(SALES_KEY, JSON.stringify(getInitialSales()));
   }
   if (!localStorage.getItem(AUDIT_LOGS_KEY)) {
     localStorage.setItem(AUDIT_LOGS_KEY, JSON.stringify([]));
