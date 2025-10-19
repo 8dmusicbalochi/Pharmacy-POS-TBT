@@ -1,4 +1,4 @@
-import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod, PurchaseOrder, PurchaseOrderStatus } from '../types';
+import { User, UserRole, Product, Sale, AuditLog, AppSettings, Category, Supplier, CartItem, InventoryItem, Task, PaymentMethod, PurchaseOrder, PurchaseOrderStatus, Refund } from '../types';
 
 const USERS_KEY = 'pharmacy_users';
 const PRODUCTS_KEY = 'pharmacy_products';
@@ -10,6 +10,7 @@ const CATEGORIES_KEY = 'pharmacy_categories';
 const SUPPLIERS_KEY = 'pharmacy_suppliers';
 const TASKS_KEY = 'pharmacy_tasks';
 const PURCHASE_ORDERS_KEY = 'pharmacy_purchase_orders';
+const REFUNDS_KEY = 'pharmacy_refunds';
 
 const getInitialUsers = (): User[] => [
   { id: 'u1', username: 'admin', password: 'password', role: UserRole.SUPER_ADMIN, name: 'Admin User' },
@@ -254,6 +255,9 @@ const seedData = () => {
   if (!localStorage.getItem(PURCHASE_ORDERS_KEY)) {
     localStorage.setItem(PURCHASE_ORDERS_KEY, JSON.stringify(getInitialPurchaseOrders()));
   }
+  if (!localStorage.getItem(REFUNDS_KEY)) {
+    localStorage.setItem(REFUNDS_KEY, JSON.stringify([]));
+  }
 };
 
 seedData();
@@ -443,6 +447,72 @@ const api = {
     localStorage.setItem(SALES_KEY, JSON.stringify(sales));
     
     return newSale;
+  },
+
+  // REFUNDS
+  getRefunds: (): Refund[] => {
+    return JSON.parse(localStorage.getItem(REFUNDS_KEY) || '[]').sort((a: Refund, b: Refund) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  },
+  addRefund: (refundData: Omit<Refund, 'id'>): Refund => {
+    const refunds = api.getRefunds();
+    const sales = api.getSales();
+    const user = api.getUsers().find(u => u.id === refundData.processedById);
+    
+    // 1. Create and save the refund object
+    const newRefund: Refund = {
+        ...refundData,
+        id: `refund-${Date.now()}`,
+    };
+    refunds.unshift(newRefund);
+    localStorage.setItem(REFUNDS_KEY, JSON.stringify(refunds));
+
+    // 2. Update the original sale
+    const saleIndex = sales.findIndex(s => s.id === newRefund.originalSaleId);
+    if (saleIndex !== -1) {
+        const originalSale = sales[saleIndex];
+        originalSale.refundIds = [...(originalSale.refundIds || []), newRefund.id];
+        originalSale.refundedAmount = (originalSale.refundedAmount || 0) + newRefund.totalRefundAmount;
+        // Adjust profit on original sale
+        if (originalSale.totalProfit) {
+            originalSale.totalProfit -= (newRefund.totalRefundAmount - newRefund.totalRefundCost);
+        }
+        sales[saleIndex] = originalSale;
+        localStorage.setItem(SALES_KEY, JSON.stringify(sales));
+    }
+
+    // 3. Optionally, return items to stock and log it
+    if (newRefund.returnedToStock) {
+        newRefund.items.forEach(refundedItem => {
+            const newItem: InventoryItem = {
+                id: `inv-${Date.now()}-${Math.random()}`,
+                productId: refundedItem.id,
+                quantity: refundedItem.quantity,
+                batchNumber: `REFUND-${newRefund.originalSaleId.slice(-4)}`,
+                addedDate: new Date().toISOString(),
+            };
+            api.saveInventoryItem(newItem);
+
+            const allProducts = api.getProducts();
+            const product = allProducts.find(p => p.id === refundedItem.id);
+            const inventory = api.getInventory();
+            const totalStock = inventory.filter(i => i.productId === refundedItem.id).reduce((sum, i) => sum + i.quantity, 0);
+            
+            if (product && user) {
+                api.addAuditLog({
+                    timestamp: new Date().toISOString(),
+                    userId: user.id,
+                    userName: user.name,
+                    productId: product.id,
+                    productName: product.name,
+                    quantityChange: refundedItem.quantity,
+                    newTotalStock: totalStock,
+                    reason: `Item returned to stock via refund from sale ${newRefund.originalSaleId}. Reason: ${newRefund.reason}`,
+                });
+            }
+        });
+    }
+
+    return newRefund;
   },
 
   // AUDIT LOGS

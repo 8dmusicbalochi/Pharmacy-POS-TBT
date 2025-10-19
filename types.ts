@@ -105,6 +105,21 @@ export interface Sale {
   cashierId: string;
   cashierName: string;
   paymentMethod: PaymentMethod;
+  refundIds?: string[];
+  refundedAmount?: number;
+}
+
+export interface Refund {
+  id: string;
+  originalSaleId: string;
+  items: CartItem[];
+  totalRefundAmount: number;
+  totalRefundCost: number;
+  reason: string;
+  returnedToStock: boolean;
+  timestamp: string;
+  processedById: string;
+  processedByName: string;
 }
 
 export interface AuditLog {
